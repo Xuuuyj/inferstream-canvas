@@ -2,7 +2,7 @@
     "mcpServers": {
         "infinite-canvas": {
             "command": "npx",
-            "args": ["-y", "@tigerowo/canvas-agent@latest", "mcp"],
+            "args": ["-y", "@tigerowo/canvas-agent@0.1.3", "mcp"],
             "startup_timeout_sec": 180,
             "tool_timeout_sec": 90
         }
