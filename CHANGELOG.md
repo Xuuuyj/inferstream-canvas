@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v0.8.4-inferstream.5 - 2026-11-17
+
++ [修复] 画布顶栏钥匙按钮在 InferStream 模式下一直显示「令牌未选全」：改为按生图、视频两把 InferStream Key 显示「Key 已就绪 / Key 未选全 / 未连接 Key」，提示里写各用哪一把
+
 ## v0.8.4-inferstream.4 - 2026-11-17
 
 + [修复] InferStream 视频的清晰度、尺寸、秒数选项没有显示，只能用默认的 5 秒 720p
