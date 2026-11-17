@@ -8,6 +8,7 @@ import Link from "next/link";
 
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { GitHubLink } from "@/components/layout/github-link";
+import { useInferStreamKeyStatus } from "@/hooks/use-inferstream-key-status";
 import { useLogout } from "@/hooks/use-logout";
 import { fitKeyStatusLabel, fitKeyStatusTooltip } from "@/lib/fit-config";
 import { cn } from "@/lib/utils";
@@ -38,7 +39,11 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
     const fitConfig = useConfigStore((state) => state.config);
     const autoLoginOff = useFitBridgeStore((state) => state.autoLoginOff);
     const fitLoggedIn = useFitBridgeStore((state) => state.fitLoggedIn);
-    const keyStatus = fitKeyStatusLabel(fitConfig, { autoLoginOff, fitLoggedIn });
+    // InferStream 模式只看生图、视频两把 InferStream Key；openai.fit 的三把令牌槽位不再适用
+    const inferStreamMode = useConfigStore((state) => state.publicSettings?.auth?.inferStreamLogin === true);
+    const inferStreamKeys = useInferStreamKeyStatus(inferStreamMode);
+    const keyStatus = inferStreamMode ? inferStreamKeys.label : fitKeyStatusLabel(fitConfig, { autoLoginOff, fitLoggedIn });
+    const keyTooltip = inferStreamMode ? inferStreamKeys.tooltip : fitKeyStatusTooltip(fitConfig);
     const avatarUrl = user?.avatarUrl?.trim();
     const avatarText = (userName.trim()[0] || "U").toUpperCase();
     const naturalIconClass = "inline-flex size-7 shrink-0 items-center justify-center text-stone-600 transition hover:text-stone-950 dark:text-stone-300 dark:hover:text-white [&_svg]:size-4";
@@ -64,7 +69,7 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
             <AnimatedThemeToggler theme={theme} onThemeChange={setTheme} className={naturalIconClass} style={iconStyle} aria-label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"} title={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"} />
             <GitHubLink className={cn("bg-transparent hover:bg-transparent dark:hover:bg-transparent", gitHubClassName)} style={gitHubStyle} />
             {variant === "canvas" ? (
-                <Tooltip title={fitKeyStatusTooltip(fitConfig)} placement="bottom">
+                <Tooltip title={keyTooltip} placement="bottom">
                     <button type="button" className="flex h-8 shrink-0 items-center gap-1.5 px-1.5 text-xs font-medium opacity-75 transition hover:opacity-100" style={{ color: canvasTheme.node.text }} onClick={() => openConfigDialog(false)}>
                         <KeyRound className="size-3.5" />
                         <span>{keyStatus}</span>

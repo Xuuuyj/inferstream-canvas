@@ -88,9 +88,20 @@ export function inferStreamTokenLabel(capability: InferStreamCapability, userId 
     return read(labelKey(capability, userId)) || `sk-…${token.slice(-4)}`;
 }
 
+/** 生图、视频 Key 变了（导入、粘贴、断开、退出）时在 window 上发的事件，顶栏钥匙按钮据此刷新。 */
+export const INFERSTREAM_TOKENS_EVENT = "inferstream-tokens-changed";
+
 export function saveInferStreamToken(capability: InferStreamCapability, userId: string, token: string, label = "") {
     write(storageKey(capability, userId), token);
     write(labelKey(capability, userId), token ? label : "");
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") window.dispatchEvent(new Event(INFERSTREAM_TOKENS_EVENT));
+}
+
+/** 顶栏钥匙按钮：两把都有「Key 已就绪」，缺一把「Key 未选全」，都没有「未连接 Key」；提示里写各用哪一把。 */
+export function inferStreamKeyStatus(imageLabel: string, videoLabel: string) {
+    const label = imageLabel && videoLabel ? "Key 已就绪" : imageLabel || videoLabel ? "Key 未选全" : "未连接 Key";
+    const tooltip = `生图：${imageLabel || "未选"} · 视频：${videoLabel || "未选"}（只保存在本浏览器）`;
+    return { label, tooltip };
 }
 
 export function clearInferStreamTokens(userId: string) {

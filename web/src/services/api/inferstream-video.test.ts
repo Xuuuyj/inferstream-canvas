@@ -149,3 +149,10 @@ test("Auto-import picks a usable account key for each missing capability", async
         env.restore();
     }
 });
+
+test("Top bar key status reflects the InferStream image and video keys", async () => {
+    const { inferStreamKeyStatus } = await import("@/lib/inferstream-image-access");
+    assert.deepEqual(inferStreamKeyStatus("test", "yuru-zcode"), { label: "Key 已就绪", tooltip: "生图：test · 视频：yuru-zcode（只保存在本浏览器）" });
+    assert.equal(inferStreamKeyStatus("test", "").label, "Key 未选全");
+    assert.equal(inferStreamKeyStatus("", "").label, "未连接 Key");
+});
