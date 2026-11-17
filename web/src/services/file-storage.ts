@@ -5,7 +5,21 @@ import { nanoid } from "nanoid";
 
 import { deleteAnonymousStorageFile, uploadAnonymousStorageFile } from "@/services/anonymous-storage";
 import { apiGet } from "@/services/api/request";
-import { autoSyncToCloud, canUseGlobalStorage, clearAutoSyncCache, getProxyUrl, loadUserStorageProvider, toProviderPayload, type StorageConfig, type UserWebDAVStorageProvider } from "@/services/image-storage";
+import { mirrorToLocalFolder, readFromLocalFolder } from "@/services/local-folder";
+import { keysReadyToDelete } from "@/services/media-cleanup";
+import {
+    MEDIA_PROXY_LOGIN_REQUIRED,
+    autoSyncToCloud,
+    canUseGlobalStorage,
+    clearAutoSyncCache,
+    fetchViaProxy,
+    getProxyUrl,
+    isFitMediaUrl,
+    loadUserStorageProvider,
+    toProviderPayload,
+    type StorageConfig,
+    type UserWebDAVStorageProvider,
+} from "@/services/image-storage";
 import { useUserStore } from "@/stores/use-user-store";
 
 export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number };
@@ -27,9 +41,10 @@ export async function uploadMediaFile(input: string | Blob, prefix = "file", syn
     if (uploaded) return uploaded;
     const storageKey = `${prefix}:${nanoid()}`;
     await store.setItem(storageKey, blob);
+    mirrorToLocalFolder(storageKey, blob);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
-    const meta = blob.type.startsWith("video/") ? await readVideoMeta(url) : {};
+    const meta = await uploadedMediaMeta(url, blob.type);
     return { url, storageKey, bytes: blob.size, mimeType: blob.type || "application/octet-stream", ...meta };
 }
 
@@ -43,7 +58,10 @@ export async function uploadAssetMediaFile(file: File, prefix = "asset-media"): 
 }
 
 export async function downloadRemoteMedia(url: string) {
-    const response = await fetch(getProxyUrl(url));
+    // openai.fit 和它的 OSS 先直连，直连失败时登录用户再走代理（见 fetchViaProxy）
+    const response = await fetchViaProxy(url);
+    // 代理对没登录（或登录已过期）的请求只放行图片，视频和音频回 401。
+    if (response.status === 401 && (getProxyUrl(url) !== url || isFitMediaUrl(url))) throw new Error(MEDIA_PROXY_LOGIN_REQUIRED);
     if (!response.ok) throw new Error(`媒体下载失败：${response.status}`);
     const blob = await response.blob();
     if (blob.type.includes("json") || blob.type.startsWith("text/")) {
@@ -102,7 +120,7 @@ async function cacheAnonymousMedia(uploaded: UploadedFile, blob: Blob) {
     await store.setItem(uploaded.storageKey, blob);
     const url = URL.createObjectURL(blob);
     objectUrls.set(uploaded.storageKey, url);
-    const meta = blob.type.startsWith("video/") ? await readVideoMeta(url) : {};
+    const meta = await uploadedMediaMeta(url, blob.type);
     return { ...uploaded, url, bytes: uploaded.bytes || blob.size, mimeType: uploaded.mimeType || blob.type || "application/octet-stream", ...meta };
 }
 
@@ -126,6 +144,14 @@ export async function resolveMediaUrl(storageKey?: string, fallback = "") {
     const blob = await store.getItem<Blob>(storageKey).catch(() => null);
     if (blob) {
         const url = URL.createObjectURL(blob);
+        objectUrls.set(storageKey, url);
+        return url;
+    }
+    // 浏览器里没了（清缓存、空间不够被浏览器清掉）：从用户选的本地文件夹找回来，再存回浏览器
+    const fromFolder = await readFromLocalFolder(storageKey);
+    if (fromFolder) {
+        await store.setItem(storageKey, fromFolder).catch(() => undefined);
+        const url = URL.createObjectURL(fromFolder);
         objectUrls.set(storageKey, url);
         return url;
     }
@@ -160,8 +186,14 @@ export async function getMediaBlob(storageKey: string) {
     return store.getItem<Blob>(storageKey);
 }
 
+/** 浏览器里还存着这个素材（不查本地文件夹、不查服务器）。 */
+export async function hasLocalMedia(storageKey: string) {
+    return objectUrls.has(storageKey) || Boolean(await store.getItem<Blob>(storageKey).catch(() => null));
+}
+
 export async function setMediaBlob(storageKey: string, blob: Blob) {
     await store.setItem(storageKey, blob);
+    mirrorToLocalFolder(storageKey, blob);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     return url;
@@ -233,7 +265,8 @@ export async function cleanupUnusedMedia(usedData: unknown) {
     await store.iterate((_value, key) => {
         if (!usedKeys.has(key)) unused.push(key);
     });
-    await Promise.all(unused.map((key) => store.removeItem(key)));
+    const ready = await keysReadyToDelete("media", unused);
+    await Promise.all(ready.map((key) => store.removeItem(key)));
 }
 
 export function collectMediaStorageKeys(value: unknown, keys = new Set<string>()) {
@@ -243,12 +276,48 @@ export function collectMediaStorageKeys(value: unknown, keys = new Set<string>()
     return keys;
 }
 
-function readVideoMeta(url: string) {
-    return new Promise<{ width: number; height: number }>((resolve) => {
-        const video = document.createElement("video");
-        const done = () => resolve({ width: video.videoWidth || 1280, height: video.videoHeight || 720 });
-        video.onloadedmetadata = done;
-        video.onerror = done;
-        video.src = url;
-    });
+const MEDIA_META_TIMEOUT_MS = 10_000;
+
+/** 用媒体元素读一次元数据：宽高（音频没有）和片长（毫秒）；出错、读不出或 10 秒没读到都不给，浏览器外返回空。 */
+async function readMediaMeta(source: Blob | string, kind: "video" | "audio") {
+    if (typeof document === "undefined") return {};
+    const url = typeof source === "string" ? source : URL.createObjectURL(source);
+    const element = document.createElement(kind);
+    element.preload = "metadata";
+    try {
+        return await new Promise<{ width?: number; height?: number; durationMs?: number }>((resolve) => {
+            const timer = setTimeout(() => resolve({}), MEDIA_META_TIMEOUT_MS);
+            element.onloadedmetadata = () => {
+                clearTimeout(timer);
+                const durationMs = Number.isFinite(element.duration) && element.duration > 0 ? Math.round(element.duration * 1000) : undefined;
+                const video = kind === "video" ? (element as HTMLVideoElement) : null;
+                resolve(video ? { width: video.videoWidth, height: video.videoHeight, durationMs } : { durationMs });
+            };
+            element.onerror = () => {
+                clearTimeout(timer);
+                resolve({});
+            };
+            element.src = url;
+        });
+    } finally {
+        element.removeAttribute("src");
+        if (typeof source !== "string") URL.revokeObjectURL(url);
+    }
+}
+
+/** 音视频的真实片长（毫秒）；读不出返回 undefined。 */
+export async function readMediaDurationMs(source: Blob | string, kind: "video" | "audio") {
+    return (await readMediaMeta(source, kind)).durationMs;
+}
+
+async function readVideoMeta(url: string) {
+    const { width, height, durationMs } = await readMediaMeta(url, "video");
+    return { width: width || 1280, height: height || 720, ...(durationMs ? { durationMs } : {}) };
+}
+
+/** 存下的音视频顺手读元数据：视频的宽高和片长，音频的片长（UploadedFile.durationMs 是真实片长）。 */
+async function uploadedMediaMeta(url: string, type: string) {
+    if (type.startsWith("video/")) return readVideoMeta(url);
+    const durationMs = type.startsWith("audio/") ? await readMediaDurationMs(url, "audio") : undefined;
+    return durationMs ? { durationMs } : {};
 }

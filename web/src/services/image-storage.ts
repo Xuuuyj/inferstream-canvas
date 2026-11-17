@@ -5,9 +5,12 @@ import localforage from "localforage";
 import { nanoid } from "nanoid";
 import { createImageThumbnail } from "@/lib/image-thumbnail";
 import { readImageMeta } from "@/lib/image-utils";
+import { FIT_ORIGIN } from "@/lib/model-channel";
 import { deleteAnonymousStorageFile, uploadAnonymousStorageFile } from "@/services/anonymous-storage";
 import { apiGet } from "@/services/api/request";
 import { comfyOutputStorageKey } from "@/services/api/workflow-generation";
+import { mirrorToLocalFolder, readFromLocalFolder } from "@/services/local-folder";
+import { keysReadyToDelete } from "@/services/media-cleanup";
 import { useUserStore } from "@/stores/use-user-store";
 
 export type UploadedImage = {
@@ -177,7 +180,7 @@ async function loadImagePreview(key: string, source: string, epoch: number, url?
         const resolvedUrl = url || (storageKey ? await resolveImageUrl(storageKey, "") : "");
         if (!resolvedUrl || isLocalImageSource(resolvedUrl) || isComfyImageSource(resolvedUrl) || !isCurrent()) return undefined;
 
-        const response = await fetch(getProxyUrl(resolvedUrl));
+        const response = await fetchImage(resolvedUrl);
         if (!response.ok || !isCurrent()) return undefined;
         const blob = await response.blob();
         const preview = await createImageThumbnail(blob);
@@ -339,6 +342,19 @@ function isLocalNetworkHost(hostname: string) {
     );
 }
 
+/** openai.fit 和它存成片、备份图的 OSS 桶：浏览器先直接访问（第 C9、C10 条）；直连失败时的代理兜底见 fetchViaProxy。 */
+const FIT_MEDIA_HOSTS = new Set([new URL(FIT_ORIGIN).host, "fadacai-openai-fit.oss-cn-shenzhen.aliyuncs.com"]);
+
+/** https 的 openai.fit 或 fit 的 OSS 桶地址。 */
+export function isFitMediaUrl(url: string) {
+    try {
+        const parsed = new URL(url);
+        return parsed.protocol === "https:" && FIT_MEDIA_HOSTS.has(parsed.host);
+    } catch {
+        return false;
+    }
+}
+
 export function getProxyUrl(url: string): string {
     if (!url.startsWith("http://") && !url.startsWith("https://")) {
         return url;
@@ -347,6 +363,7 @@ export function getProxyUrl(url: string): string {
         const parsed = new URL(url);
         if (
             isLocalNetworkHost(parsed.hostname) ||
+            isFitMediaUrl(url) ||
             (typeof window !== "undefined" &&
                 parsed.host === window.location.host)
         ) {
@@ -358,11 +375,32 @@ export function getProxyUrl(url: string): string {
     return `/api/proxy-image?url=${encodeURIComponent(url)}`;
 }
 
+export const MEDIA_PROXY_LOGIN_REQUIRED = "登录后才能导入视频和音频";
+
+// 经同源 /api/proxy-image 取远程文件：登录后带画布账号的登录令牌（不是 openai.fit 令牌），服务端只给登录用户代理视频和音频。
+// openai.fit 和它的 OSS 先由浏览器直连；直连失败（成片退到签名链接时 302 到没加跨域规则的 OSS、断网）或不是 2xx 时，
+// 登录用户再经代理取一次；没登录时不把签名链接交给画布服务器，连不上就报 MEDIA_PROXY_LOGIN_REQUIRED。
+export async function fetchViaProxy(url: string) {
+    const token = useUserStore.getState().token;
+    const proxied = () => fetch(`/api/proxy-image?url=${encodeURIComponent(url)}`, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
+    if (getProxyUrl(url) !== url) return proxied();
+    if (!isFitMediaUrl(url)) return fetch(url);
+    const direct = await fetch(url).catch(() => null);
+    if (direct?.ok) return direct;
+    if (token) return proxied();
+    if (direct) return direct;
+    throw new Error(MEDIA_PROXY_LOGIN_REQUIRED);
+}
+
+/** 取图片：openai.fit 和它的 OSS 照 fetchViaProxy 先直连，直连失败时登录用户再走代理（没登录不把签名链接交给画布服务器）；其他地址照旧经 getProxyUrl。 */
+function fetchImage(url: string) {
+    return isFitMediaUrl(url) ? fetchViaProxy(url) : fetch(getProxyUrl(url));
+}
+
 export async function uploadImage(input: string | Blob, options: UploadImageOptions = {}): Promise<UploadedImage> {
-    const url = typeof input === "string" ? getProxyUrl(input) : input;
     let blob: Blob;
-    if (typeof url === "string") {
-        const response = await fetch(url);
+    if (typeof input === "string") {
+        const response = await fetchImage(input);
         if (!response.ok) {
             const payload = await response.json().catch(() => null) as { msg?: string } | null;
             throw new Error(payload?.msg || `代理图片拉取失败：${response.status}`);
@@ -374,7 +412,7 @@ export async function uploadImage(input: string | Blob, options: UploadImageOpti
         }
         blob = await response.blob();
     } else {
-        blob = url;
+        blob = input;
     }
     if (!options.localOnly) {
         const serverUpload = await maybeUploadImageToServer(blob, options.token);
@@ -382,6 +420,7 @@ export async function uploadImage(input: string | Blob, options: UploadImageOpti
     }
     const storageKey = `image:${nanoid()}`;
     await store.setItem(storageKey, blob);
+    mirrorToLocalFolder(storageKey, blob);
     const urlObj = URL.createObjectURL(blob);
     objectUrls.set(storageKey, urlObj);
     const meta = await readImageMeta(urlObj);
@@ -464,8 +503,13 @@ export async function resolveImageUrl(storageKey?: string, fallback = "") {
 async function resolveLocalImageUrl(storageKey: string) {
     const cached = objectUrls.get(storageKey);
     if (cached) return cached;
-    const blob = await store.getItem<Blob>(storageKey);
-    if (!blob) return "";
+    let blob = await store.getItem<Blob>(storageKey);
+    if (!blob) {
+        // 浏览器里没了：从用户选的本地文件夹找回来，再存回浏览器
+        blob = await readFromLocalFolder(storageKey);
+        if (!blob) return "";
+        await store.setItem(storageKey, blob).catch(() => undefined);
+    }
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     return url;
@@ -543,6 +587,7 @@ export async function getImageBlob(storageKey: string) {
 
 export async function setImageBlob(storageKey: string, blob: Blob) {
     await store.setItem(storageKey, blob);
+    mirrorToLocalFolder(storageKey, blob);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     return url;
@@ -613,7 +658,7 @@ export async function cleanupUnusedImages(usedData: unknown, storageKeys: Readon
     await store.iterate((_value, key) => {
         if (!usedKeys.has(key)) unused.push(key);
     });
-    await deleteStoredImages(unused, ownerToken);
+    await deleteStoredImages(await keysReadyToDelete("image", unused), ownerToken);
 }
 
 export function collectImageStorageKeys(value: unknown, keys = new Set<string>(), knownUrls?: ReadonlyMap<string, string>, capturedUrls?: Map<string, string>) {

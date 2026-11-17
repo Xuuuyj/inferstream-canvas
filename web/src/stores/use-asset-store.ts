@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
 
 import { nanoid } from "nanoid";
+import { isCanvasTabSuperseded } from "@/lib/canvas-tab-guard";
 import { localForageStorage } from "@/lib/localforage-storage";
 import { cleanupUnusedImages, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { cleanupUnusedMedia, resolveMediaUrl } from "@/services/file-storage";
@@ -207,8 +208,17 @@ export const useAssetStore = create<AssetStore>()(
             },
             cleanupImages: (extra, storageKeys, ownerToken) => {
                 window.setTimeout(async () => {
-                    const { useCanvasStore } = await import("@/app/(user)/canvas/stores/use-canvas-store");
+                    // 被另一个画布页面取代的旧页面不清理：它内存里的项目是旧的，会把那边新加的素材当成没人用
+                    if (isCanvasTabSuperseded()) return;
+                    const { CANVAS_STORE_KEY, useCanvasStore } = await import("@/app/(user)/canvas/stores/use-canvas-store");
                     const { loadLocalAgentSkills, useAgentSkillStore } = await import("@/stores/use-agent-skill-store");
+                    // 除了本页内存里的项目和素材，已存盘的那份也算「有人用」；读不出来就这次不清理
+                    let saved: unknown[];
+                    try {
+                        saved = (await Promise.all([CANVAS_STORE_KEY, ASSET_STORE_KEY].map((key) => localForageStorage.getItem(key)))).map((value) => (value ? JSON.parse(value) : null));
+                    } catch {
+                        return;
+                    }
                     const logKeys: string[] = [];
                     try {
                         const localforage = (await import("localforage")).default;
@@ -248,11 +258,11 @@ export const useAssetStore = create<AssetStore>()(
                         await useAgentSkillStore.getState().loadSkills();
                         const skillStore = useAgentSkillStore.getState();
                         const localSkills = useUserStore.getState().token ? await loadLocalAgentSkills() : [];
-                        await cleanupUnusedImages({ assets: get().assets, projects: useCanvasStore.getState().projects, skills: [...skillStore.systemSkills, ...skillStore.userSkills, ...localSkills], extra, logKeys }, storageKeys, ownerToken);
+                        await cleanupUnusedImages({ assets: get().assets, projects: useCanvasStore.getState().projects, saved, skills: [...skillStore.systemSkills, ...skillStore.userSkills, ...localSkills], extra, logKeys }, storageKeys, ownerToken);
                     } catch (error) {
                         console.error("Error gathering Skill keys in cleanupImages", error);
                     }
-                    await cleanupUnusedMedia({ assets: get().assets, projects: useCanvasStore.getState().projects, extra, logKeys });
+                    await cleanupUnusedMedia({ assets: get().assets, projects: useCanvasStore.getState().projects, saved, extra, logKeys });
                 }, 0);
             },
         }),
