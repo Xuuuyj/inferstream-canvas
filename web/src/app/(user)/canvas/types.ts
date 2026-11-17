@@ -79,6 +79,8 @@ export type CanvasNodeMetadata = {
     mimoVoiceCloneAudioNodeId?: string;
     referenceAudioNodeId?: string;
     references?: string[];
+    /** 局部编辑出来的节点：references[0] 是发给模型的那张带蓝色遮罩的图。 */
+    maskEdit?: boolean;
     naturalWidth?: number;
     naturalHeight?: number;
     freeResize?: boolean;
