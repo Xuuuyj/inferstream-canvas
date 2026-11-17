@@ -42,12 +42,12 @@ export function AnnouncementBanner() {
                 beforeChange={(_, next) => setSlide((current) => current.index === next ? current : { index: next, direction: "right" })}
                 adaptiveHeight
                 dots={false}
-                rootClassName="isolate"
+                rootClassName="isolate text-inherit!"
             >
                 {ANNOUNCEMENTS.map(({ text, linkText, url }, index) => (
                     <div key={index}>
                         <div className={`flex min-h-12 items-center justify-center gap-2 px-12 py-2 text-center text-sm duration-300 in-[.slick-active]:animate-in in-[.slick-active]:fade-in sm:text-base ${slide.direction === "left" ? "in-[.slick-active]:slide-in-from-left-2" : "in-[.slick-active]:slide-in-from-right-2"}`}>
-                            <span className="min-w-0 break-words font-medium leading-[1.6] [&_a]:whitespace-nowrap [&_svg]:mr-2 [&_svg]:inline-block [&_svg]:size-[18px] [&_svg]:align-middle [&_svg]:-translate-y-[2.5px]"><Megaphone />{text} <a href={url} target="_blank" rel="noopener" className="underline!">{linkText}</a></span>
+                            <span className="min-w-0 break-words font-medium leading-[1.6] [&_a]:whitespace-nowrap [&_svg]:mr-2 [&_svg]:inline-block [&_svg]:size-[18px] [&_svg]:align-middle [&_svg]:-translate-y-[2.5px]"><Megaphone />{text} <a href={url} target="_blank" rel="noopener" className="text-inherit! underline!">{linkText}</a></span>
                         </div>
                     </div>
                 ))}
