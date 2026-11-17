@@ -11,8 +11,10 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/tigerowo/infinite-canvas/config"
 	"github.com/tigerowo/infinite-canvas/model"
@@ -32,6 +34,8 @@ type TokenClaims struct {
 	Role     model.UserRole `json:"role"`
 	jwt.RegisteredClaims
 }
+
+var registerUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{3,32}$`)
 
 type userExtra struct {
 	LinuxDo any `json:"linuxDo,omitempty"`
@@ -73,11 +77,11 @@ func Register(username string, password string) (model.AuthSession, error) {
 		return model.AuthSession{}, safeMessageError{message: "当前未开放注册"}
 	}
 	username = strings.TrimSpace(username)
-	if strings.ContainsAny(username, " \t\r\n") {
-		return model.AuthSession{}, safeMessageError{message: "用户名不能包含空格"}
+	if !registerUsernamePattern.MatchString(username) {
+		return model.AuthSession{}, safeMessageError{message: "用户名需为 3–32 位字母、数字、下划线或短横线"}
 	}
-	if username == "" || password == "" {
-		return model.AuthSession{}, safeMessageError{message: "用户名和密码不能为空"}
+	if utf8.RuneCountInString(password) < 8 {
+		return model.AuthSession{}, safeMessageError{message: "密码至少 8 位"}
 	}
 	if _, ok, err := repository.GetUserByUsername(username); err != nil || ok {
 		if err != nil {
@@ -105,10 +109,26 @@ func Register(username string, password string) (model.AuthSession, error) {
 	return newSession(user)
 }
 
+// ErrAdminLoginRequired 管理员账号只能走 /api/admin/login（后台入口另有 IP 白名单）。
+var ErrAdminLoginRequired = safeMessageError{message: "请从后台登录"}
+
+// Login 是后台登录用的，不限角色，角色由调用方检查。
 func Login(username string, password string) (model.AuthSession, error) {
+	return login(username, password, true)
+}
+
+// UserLogin 是前台登录：管理员账号直接拒绝，而且在校验密码之前就拒绝，前台入口不能用来试管理员密码。
+func UserLogin(username string, password string) (model.AuthSession, error) {
+	return login(username, password, false)
+}
+
+func login(username string, password string, allowAdmin bool) (model.AuthSession, error) {
 	user, ok, err := repository.GetUserByUsername(strings.TrimSpace(username))
 	if err != nil {
 		return model.AuthSession{}, err
+	}
+	if ok && !allowAdmin && user.Role == model.UserRoleAdmin {
+		return model.AuthSession{}, ErrAdminLoginRequired
 	}
 	if !ok || bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)) != nil {
 		return model.AuthSession{}, safeMessageError{message: "用户名或密码错误"}
@@ -289,6 +309,8 @@ func SaveUser(user model.User, password string) (model.User, error) {
 		if user.LinuxDoID == "" {
 			user.LinuxDoID = saved.LinuxDoID
 		}
+		// 后台编辑表单里没有 openai.fit 关联，保存时沿用库里的，否则保存一次关联就没了。
+		user.FitUserID = saved.FitUserID
 		user.LastLoginAt = saved.LastLoginAt
 	}
 	if password != "" {
@@ -600,7 +622,7 @@ func firstNonEmpty(values ...string) string {
 }
 
 func WarnDefaultSecurityConfig() {
-	if config.Cfg.AdminUsername == "admin" && config.Cfg.AdminPassword == "infinite-canvas" {
+	if config.Cfg.AdminUsername == "admin" || config.Cfg.AdminPassword == "infinite-canvas" {
 		log.Println("WARNING: using default admin credentials, please set ADMIN_USERNAME and ADMIN_PASSWORD to safer values before deployment")
 	}
 }

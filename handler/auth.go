@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -18,6 +19,12 @@ type loginRequest struct {
 type registerRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+}
+
+type fitLoginRequest struct {
+	Code         string `json:"code"`
+	CodeVerifier string `json:"codeVerifier"`
+	State        string `json:"state"`
 }
 
 type saveUserRequest struct {
@@ -48,7 +55,37 @@ func Register(w http.ResponseWriter, r *http.Request) {
 func Login(w http.ResponseWriter, r *http.Request) {
 	var request loginRequest
 	_ = json.NewDecoder(r.Body).Decode(&request)
-	session, err := service.Login(request.Username, request.Password)
+	session, err := service.UserLogin(request.Username, request.Password)
+	if errors.Is(err, service.ErrAdminLoginRequired) {
+		FailWithStatus(w, http.StatusForbidden, "请从后台登录")
+		return
+	}
+	if err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, session)
+}
+
+// FitLogin 用 openai.fit 桥接页发的一次性 code 登录（浏览器只把 code、state 和 PKCE verifier 发来，令牌不经过这里）。
+func FitLogin(w http.ResponseWriter, r *http.Request) {
+	var request fitLoginRequest
+	_ = json.NewDecoder(r.Body).Decode(&request)
+	session, err := service.LoginWithFit(request.Code, request.CodeVerifier, request.State)
+	if err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, session)
+}
+
+func InferStreamLogin(w http.ResponseWriter, r *http.Request) {
+	var request fitLoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		FailWithStatus(w, http.StatusBadRequest, "登录请求无效")
+		return
+	}
+	session, err := service.LoginWithInferStream(request.Code, request.CodeVerifier, request.State)
 	if err != nil {
 		FailError(w, err)
 		return

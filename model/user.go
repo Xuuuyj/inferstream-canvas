@@ -17,25 +17,27 @@ const (
 
 // User 系统用户。
 type User struct {
-	ID          string     `json:"id" gorm:"primaryKey"`
-	Username    string     `json:"username" gorm:"uniqueIndex"`
-	Password    string     `json:"password,omitempty"`
-	Email       string     `json:"email"`
-	DisplayName string     `json:"displayName"`
-	AvatarURL   string     `json:"avatarUrl"`
-	Role        UserRole   `json:"role"`
-	Credits     float64    `json:"credits" gorm:"type:decimal(20,2)"`
-	AffCode     string     `json:"affCode" gorm:"uniqueIndex"`
-	AffCount    int        `json:"affCount"`
-	InviterID   string     `json:"inviterId"`
-	GithubID    string     `json:"githubId"`
-	LinuxDoID   string     `json:"linuxDoId" gorm:"index"`
-	WechatID    string     `json:"wechatId"`
-	Status      UserStatus `json:"status"`
-	LastLoginAt string     `json:"lastLoginAt"`
-	Extra       string     `json:"extra" gorm:"type:text"`
-	CreatedAt   string     `json:"createdAt"`
-	UpdatedAt   string     `json:"updatedAt"`
+	ID                string     `json:"id" gorm:"primaryKey"`
+	Username          string     `json:"username" gorm:"uniqueIndex"`
+	Password          string     `json:"password,omitempty"`
+	Email             string     `json:"email"`
+	DisplayName       string     `json:"displayName"`
+	AvatarURL         string     `json:"avatarUrl"`
+	Role              UserRole   `json:"role"`
+	Credits           float64    `json:"credits" gorm:"type:decimal(20,2)"`
+	AffCode           string     `json:"affCode" gorm:"uniqueIndex"`
+	AffCount          int        `json:"affCount"`
+	InviterID         string     `json:"inviterId"`
+	GithubID          string     `json:"githubId"`
+	LinuxDoID         string     `json:"linuxDoId" gorm:"index"`
+	InferStreamUserID *int       `json:"-" gorm:"uniqueIndex"`
+	FitUserID         *int       `json:"fitUserId,omitempty" gorm:"uniqueIndex"` // 「用 openai.fit 登录」关联的 fit 用户 ID；没关联的是 NULL，多个 NULL 不违反唯一索引
+	WechatID          string     `json:"wechatId"`
+	Status            UserStatus `json:"status"`
+	LastLoginAt       string     `json:"lastLoginAt"`
+	Extra             string     `json:"extra" gorm:"type:text"`
+	CreatedAt         string     `json:"createdAt"`
+	UpdatedAt         string     `json:"updatedAt"`
 }
 
 // UserList 用户分页结果。
@@ -54,6 +56,8 @@ type AuthUser struct {
 	Credits     float64  `json:"credits"`
 	CreatedAt   string   `json:"createdAt"`
 	UpdatedAt   string   `json:"updatedAt"`
+	// FitUserID 只有「用 openai.fit 登录」建的账号才有；不是秘密，前端用它判断 openai.fit 那边是不是换了人。
+	FitUserID *int `json:"fitUserId,omitempty"`
 }
 
 // AuthSession 登录会话信息。
@@ -72,6 +76,7 @@ func PublicUser(user User) AuthUser {
 		Credits:     user.Credits,
 		CreatedAt:   user.CreatedAt,
 		UpdatedAt:   user.UpdatedAt,
+		FitUserID:   user.FitUserID,
 	}
 }
 
