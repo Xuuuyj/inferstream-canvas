@@ -10,8 +10,8 @@ import { useConfigStore } from "@/stores/use-config-store";
 
 export default function LoginPage() {
     return (
-        <main className="flex h-full min-h-0 items-center justify-center overflow-y-auto bg-background bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] px-6 py-10 [background-size:16px_16px] dark:bg-[radial-gradient(rgba(245,245,244,.16)_1px,transparent_1px)]">
-            <section className="w-full max-w-[420px]">
+        <main className="flex h-full min-h-0 flex-col items-center overflow-y-auto bg-background bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] px-6 py-10 [background-size:16px_16px] dark:bg-[radial-gradient(rgba(245,245,244,.16)_1px,transparent_1px)]">
+            <section className="my-auto w-full max-w-[420px] py-8">
                 <div className="mb-7 text-center">
                     <span
                         className="mx-auto mb-4 block size-12 bg-stone-950 dark:bg-stone-100"
@@ -27,8 +27,8 @@ export default function LoginPage() {
                 <Suspense fallback={<Button type="primary" block size="large" loading>使用 InferStream 登录</Button>}>
                     <InferStreamLoginButton />
                 </Suspense>
-                <SiteCredits className="mt-8" />
             </section>
+            <SiteCredits className="shrink-0" />
         </main>
     );
 }
