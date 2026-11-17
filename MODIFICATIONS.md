@@ -82,3 +82,7 @@
 ## InferStream 视频生成与 Key 选择（2026-11-17）
 
 InferStream 登录模式下支持视频生成（seedance-2.0-mini，文生视频）：经 /inferstream/v1/videos 调网关的 OpenAI videos 接口，成片下载后存在浏览器里。生图、视频各用一把 InferStream API Key，可以在设置里从 InferStream 账号导入自己已建的 Key（登录后缺哪项自动导入一把），也可以手动粘贴。转发配置见 deploy/inferstream-edge.Caddyfile。
+
+## InferStream 视频参考图（2026-11-17）
+
+InferStream 视频支持连入的参考图和首帧：画布把图片读成 data URL，按 Seedance 的 content 列表发给网关，由网关托管到上游后提交；提示词里的 @图片N 换成 @图N。

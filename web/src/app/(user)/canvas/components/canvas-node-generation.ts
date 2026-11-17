@@ -3,6 +3,7 @@ import type { FitReferenceInput } from "@/services/api/fit/values";
 import { isFitConfig } from "@/lib/fit-config";
 import type { ModelProfile } from "@/lib/fit-generate/types";
 import { fitAllowsEmptyPrompt } from "@/lib/fit-panel";
+import { inferStreamVideoEnabled } from "@/lib/inferstream-image-access";
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { seedanceReferenceLabel } from "@/lib/seedance-video";
 import type { WorkflowRef } from "@/lib/workflow-channel";
@@ -41,11 +42,12 @@ export type NodeGenerationInput = {
 };
 
 /**
- * 组装提示词要不要把素材写成 @图片N：只有 openai.fit 出图、出视频（不走工作流）时，fit 会按 mentionLabels 把它换成同一个素材的写法；
+ * 组装提示词要不要把素材写成 @图片N：openai.fit 出图、出视频和 InferStream 出视频（不走工作流）时，按 mentionLabels 把它换成同一个素材的写法；
  * 工作流、文本、语音和其他渠道照旧写「图片N」。
  */
 export function composerMentionsFor(config: Parameters<typeof isFitConfig>[0], mode: CanvasGenerationMode, workflowRef?: unknown) {
-    return !workflowRef && (mode === "image" || mode === "video") && isFitConfig(config);
+    if (workflowRef) return false;
+    return ((mode === "image" || mode === "video") && isFitConfig(config)) || (mode === "video" && inferStreamVideoEnabled());
 }
 
 /**

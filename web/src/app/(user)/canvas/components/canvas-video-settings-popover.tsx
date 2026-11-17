@@ -109,8 +109,8 @@ function VideoSettingsPortal({ buttonRect, panelRef, placement, theme, config, o
     const isKlingV3 = isAPIMartKlingV3 || isKIEKlingV3;
     const fitProfile = useFitProfile(model);
     const inferStreamVideo = useConfigStore((state) => state.publicSettings?.auth?.inferStreamLogin === true) && isInferStreamVideoModel(model);
-    // InferStream 视频第一期只做文生视频，不给首尾帧
-    const frameReferencesEnabled = inferStreamVideo ? false : isFitConfig(config) ? Boolean(fitProfile?.roles.some((role) => role !== "reference")) : !isKlingV3 && supportsVideoFrameReferences(model, channelProtocolForConfig({ ...config, model }));
+    // InferStream 视频只给首帧（seedance-2.0-mini 不收尾帧）
+    const frameReferencesEnabled = inferStreamVideo ? true : isFitConfig(config) ? Boolean(fitProfile?.roles.some((role) => role !== "reference")) : !isKlingV3 && supportsVideoFrameReferences(model, channelProtocolForConfig({ ...config, model }));
     const optionIds = useMemo(() => new Set(frameOptions.map((item) => item.nodeId)), [frameOptions]);
     const firstFrameValue = firstFrameNodeId && optionIds.has(firstFrameNodeId) ? firstFrameNodeId : "";
     const lastFrameValue = lastFrameNodeId && optionIds.has(lastFrameNodeId) ? lastFrameNodeId : "";
@@ -125,7 +125,7 @@ function VideoSettingsPortal({ buttonRect, panelRef, placement, theme, config, o
                     <CanvasSettingGroup title="首尾帧" color={theme.node.muted}>
                         <div className="grid gap-2 rounded-xl border p-2.5" style={{ borderColor: theme.node.stroke }}>
                             {!fitProfile || fitProfile.roles.includes("first_frame") ? <FrameReferencePicker label={fitProfile?.requiresFirstFrame ? "首帧（必填）" : "首帧"} value={firstFrameValue} options={frameOptions} theme={theme} onChange={(value) => onFrameChange?.({ firstFrameNodeId: value || undefined })} /> : null}
-                            {!fitProfile || fitProfile.roles.includes("last_frame") ? <FrameReferencePicker label="尾帧" value={lastFrameValue} options={frameOptions} theme={theme} onChange={(value) => onFrameChange?.({ lastFrameNodeId: value || undefined })} /> : null}
+                            {!inferStreamVideo && (!fitProfile || fitProfile.roles.includes("last_frame")) ? <FrameReferencePicker label="尾帧" value={lastFrameValue} options={frameOptions} theme={theme} onChange={(value) => onFrameChange?.({ lastFrameNodeId: value || undefined })} /> : null}
                         </div>
                     </CanvasSettingGroup>
                 ) : null}
