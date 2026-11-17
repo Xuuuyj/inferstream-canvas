@@ -11,10 +11,11 @@ import { useFitProfile } from "@/hooks/use-fit-profile";
 import { isAutoDLConfig } from "@/lib/autodl";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isFitConfig } from "@/lib/fit-config";
+import { isInferStreamVideoModel } from "@/lib/inferstream-image-access";
 import { fitPanelSummary } from "@/lib/fit-panel";
 import { modelKey, supportsVideoFrameReferences } from "@/lib/video-model-capabilities";
 import { useThemeStore } from "@/stores/use-theme-store";
-import { channelProtocolForConfig, type AiConfig } from "@/stores/use-config-store";
+import { channelProtocolForConfig, useConfigStore, type AiConfig } from "@/stores/use-config-store";
 import type { CanvasNodeMetadata } from "../types";
 
 export type CanvasVideoFrameOption = { nodeId: string; label: string; previewUrl?: string };
@@ -107,7 +108,9 @@ function VideoSettingsPortal({ buttonRect, panelRef, placement, theme, config, o
     const isKlingMotionControl = isAPIMartKlingMotionControlConfig(config, model) || isKIEKlingMotionControlConfig(config, model) || (channelProtocolForConfig({ ...config, model, videoModel: model }) === "tokendance" && modelKey(model) === "kling-3-0");
     const isKlingV3 = isAPIMartKlingV3 || isKIEKlingV3;
     const fitProfile = useFitProfile(model);
-    const frameReferencesEnabled = isFitConfig(config) ? Boolean(fitProfile?.roles.some((role) => role !== "reference")) : !isKlingV3 && supportsVideoFrameReferences(model, channelProtocolForConfig({ ...config, model }));
+    const inferStreamVideo = useConfigStore((state) => state.publicSettings?.auth?.inferStreamLogin === true) && isInferStreamVideoModel(model);
+    // InferStream 视频第一期只做文生视频，不给首尾帧
+    const frameReferencesEnabled = inferStreamVideo ? false : isFitConfig(config) ? Boolean(fitProfile?.roles.some((role) => role !== "reference")) : !isKlingV3 && supportsVideoFrameReferences(model, channelProtocolForConfig({ ...config, model }));
     const optionIds = useMemo(() => new Set(frameOptions.map((item) => item.nodeId)), [frameOptions]);
     const firstFrameValue = firstFrameNodeId && optionIds.has(firstFrameNodeId) ? firstFrameNodeId : "";
     const lastFrameValue = lastFrameNodeId && optionIds.has(lastFrameNodeId) ? lastFrameNodeId : "";

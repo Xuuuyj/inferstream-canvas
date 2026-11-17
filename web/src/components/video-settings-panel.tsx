@@ -8,12 +8,13 @@ import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { useAutoDLWorkflow } from "@/hooks/use-autodl-workflow";
 import { getAutoDLCapabilities, isAutoDLConfig, normalizeAutoDLDuration } from "@/lib/autodl";
 import { isFitConfig } from "@/lib/fit-config";
+import { isInferStreamVideoModel } from "@/lib/inferstream-image-access";
 import { isMiniMaxH3Config } from "@/lib/minimax-video";
 import { boolConfig, isSeedanceFastOrMiniModel, isSeedanceVideoModel, normalizeSeedanceRatio, normalizeSeedanceResolution, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { COGVIDEOX3_DURATIONS, isAgnesVideoV25Model, isCogVideoX3Model, modelKey, supportsVideoAudioGeneration, videoDurationOptionsForModel } from "@/lib/video-model-capabilities";
 import { grokVideoModeOptions, isAPIMartKlingV26Config, isAPIMartKlingV3Config, isKIEGrokVideoModel, isKIEKlingV3Config, klingV26DurationOptions, klingV26ModeOptions, klingV26RatioLabels, klingV26RatioOptions, klingV3DurationOptions, klingV3ModeOptions, normalizeKlingV26Ratio } from "@/services/api/protocols/kling-models";
-import { type AiConfig } from "@/stores/use-config-store";
+import { useConfigStore, type AiConfig } from "@/stores/use-config-store";
 
 export { isAPIMartKlingV26Config, isAPIMartKlingV3Config, isAPIMartKlingMotionControlConfig, isKIEKlingV3Config, kieKlingOmniVariant, isKIEKlingMotionControlConfig, isKIEGrokVideoModel } from "@/services/api/protocols/kling-models";
 
@@ -52,7 +53,8 @@ export function VideoSettingsPanel({ config, modelName, onConfigChange, theme, s
     const model = modelName || config.model || config.videoModel;
     const autodl = isAutoDLConfig(config, model);
     const { data: workflow } = useAutoDLWorkflow(config, model);
-    if (isFitConfig(config) && model)
+    const inferStreamVideo = useConfigStore((state) => state.publicSettings?.auth?.inferStreamLogin === true) && isInferStreamVideoModel(model || "");
+    if (isFitConfig(config) && model && !inferStreamVideo)
         return (
             <ImageSettingsTheme theme={theme}>
                 <FitSettingsPanel kind="video" config={config} model={model} onConfigChange={onConfigChange as FitConfigChange} theme={theme} showTitle={showTitle} className={className} visualOnly={visualOnly} />

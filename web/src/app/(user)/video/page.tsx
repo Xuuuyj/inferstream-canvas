@@ -177,7 +177,8 @@ export default function VideoPage() {
     const { data: autodlWorkflow, error: autodlError } = useAutoDLWorkflow(videoConfig, model);
     const autodlCapabilities = getAutoDLCapabilities(autodlWorkflow);
     // openai.fit 下添加素材的个数和大小按卡片（workbenchReferenceLimits），只给素材、不写提示词按 fit 生成台的规则（fitAllowsEmptyPrompt）
-    const fitProfile = useFitProfile(!videoConfig.videoWorkflowRef && isFitConfig(videoConfig) ? model : undefined);
+    const inferStreamPageMode = useConfigStore((state) => state.publicSettings?.auth?.inferStreamLogin === true);
+    const fitProfile = useFitProfile(!videoConfig.videoWorkflowRef && isFitConfig(videoConfig) && !inferStreamPageMode ? model : undefined);
     const canGenerate = Boolean(prompt.trim() || videoConfig.videoWorkflowRef) || (autodl && autodlCapabilities?.promptRequired === false) || fitAllowsEmptyPrompt(videoConfig, fitProfile, { references, firstFrame, lastFrame, videoReferences, audioReferences });
     const pendingCount = results.filter((item) => item.status === "pending").length;
     const klingWorkbench = videoConfig.videoWorkflowRef ? null : resolveKlingWorkbenchConfig(videoConfig, model);
@@ -1588,7 +1589,9 @@ function WorkbenchPanel({
     setBottomSettingsCollapsed?: (value: boolean) => void;
 }) {
     // openai.fit 下首尾帧、声音开关和底部快捷选项都按卡片来；卡片还没读到时先不显示，不按模型名猜
-    const fitMode = !config.videoWorkflowRef && isFitConfig(config);
+    // InferStream 模式的视频模型不走 openai.fit 卡片：用通用的清晰度、尺寸、秒数控件（范围由 inferstream-video 提交前校验）
+    const inferStreamMode = useConfigStore((state) => state.publicSettings?.auth?.inferStreamLogin === true);
+    const fitMode = !config.videoWorkflowRef && isFitConfig(config) && !inferStreamMode;
     const fit = useFitPanel(fitMode ? model : undefined, config);
     const fitQuick = fitMode ? (fit.profile && fit.values ? fitQuickControls(fit.profile, fit.values, config.fitAdvanced) : []) : null;
     const frameReferencesEnabled = Boolean(config.videoWorkflowRef) || (fitMode ? Boolean(fit.profile?.roles.some((role) => role !== "reference")) : supportsVideoFrameReferences(model, channelProtocolForConfig({ ...config, model })));
