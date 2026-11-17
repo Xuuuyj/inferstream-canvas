@@ -68,7 +68,6 @@ test("画布工具栏有导演台按钮；导演台节点给「打开导演台�
             onCanvasToolChange: noop,
             onBackgroundModeChange: noop,
             onShowImageInfoChange: noop,
-            onOpenAssetLibrary: noop,
             onOpenMyAssets: noop,
         }),
     );

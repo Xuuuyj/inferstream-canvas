@@ -1,7 +1,7 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Segmented, Switch } from "antd";
-import { CircleDot, Eraser, FolderOpen, Globe2, Grid2x2, Hand, Image as ImageIcon, Info, Layers3, Library, Moon, MousePointer2, Music2, Palette, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
+import { CircleDot, Eraser, Globe2, Grid2x2, Hand, Image as ImageIcon, Info, Layers3, Library, Moon, MousePointer2, Music2, Palette, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
 
 import { DIRECTOR_ENABLED } from "@/constant/features";
 import { canvasThemes, type CanvasBackgroundMode, type CanvasColorTheme, type CanvasTheme } from "@/lib/canvas-theme";
@@ -30,7 +30,6 @@ export function CanvasToolbar({
     onCanvasToolChange,
     onBackgroundModeChange,
     onShowImageInfoChange,
-    onOpenAssetLibrary,
     onOpenMyAssets,
 }: {
     selectedCount: number;
@@ -54,7 +53,6 @@ export function CanvasToolbar({
     onCanvasToolChange: (tool: "select" | "pan") => void;
     onBackgroundModeChange: (mode: CanvasBackgroundMode) => void;
     onShowImageInfoChange: (show: boolean) => void;
-    onOpenAssetLibrary: () => void;
     onOpenMyAssets: () => void;
 }) {
     const wrapRef = useRef<HTMLDivElement>(null);
@@ -69,6 +67,15 @@ export function CanvasToolbar({
     const hoverStyle = { background: theme.toolbar.itemHover, color: theme.toolbar.activeText };
     const activeStyle = { background: theme.toolbar.activeBg, color: theme.toolbar.activeText };
     const tip = hovered ? toolLabel(hovered) : "";
+
+    useEffect(() => {
+        const closePanels = (event: PointerEvent) => {
+            if (wrapRef.current?.parentElement?.contains(event.target as Node)) return;
+            setAppearanceOpen(false);
+        };
+        document.addEventListener("pointerdown", closePanels, true);
+        return () => document.removeEventListener("pointerdown", closePanels, true);
+    }, []);
 
     return (
         <div className="pointer-events-none absolute bottom-5 z-50 flex justify-center" style={{ left: 300, right: 16 }}>
@@ -111,11 +118,8 @@ export function CanvasToolbar({
                     <Upload className="size-4.5" />
                 </ToolbarButton>
                 <Divider theme={theme} />
-                <ToolbarButton id="tool-library" label="素材库" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onOpenAssetLibrary}>
-                    <Library className="size-4.5" />
-                </ToolbarButton>
                 <ToolbarButton id="tool-assets" label="我的素材" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onOpenMyAssets}>
-                    <FolderOpen className="size-4.5" />
+                    <Library className="size-4.5" />
                 </ToolbarButton>
                 <ToolbarButton
                     id="tool-style"
@@ -305,7 +309,6 @@ function toolLabel(id: string) {
     if (id === "tool-director") return "导演台";
     if (id === "tool-config") return "生成配置";
     if (id === "tool-upload") return "上传素材";
-    if (id === "tool-library") return "素材库";
     if (id === "tool-assets") return "我的素材";
     if (id === "tool-style") return "画布外观";
     if (id === "tool-delete") return "删除选中";

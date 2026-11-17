@@ -80,7 +80,7 @@ func TestLoginWithFitCreatesThenReusesAccount(t *testing.T) {
 		t.Fatalf("created user not found: ok=%v err=%v", ok, err)
 	}
 	if user.FitUserID == nil || *user.FitUserID != 301 || user.Password != "" || user.Username != "fituser301" || user.DisplayName != "Fit 三百零一" ||
-		user.Role != model.UserRoleUser || user.Status != model.UserStatusActive || user.LastLoginAt == "" || user.AffCode == "" {
+		user.Role != model.UserRoleUser || user.Status != model.UserStatusActive || user.LastLoginAt == "" {
 		t.Fatalf("created user = %+v (fit id %v)", user, user.FitUserID)
 	}
 	if claims, err := ParseToken(session.Token); err != nil || claims.UserID != user.ID {

@@ -174,7 +174,6 @@ func createLinkedUser(identity fitIdentity, find identityLookup, link func(*mode
 			DisplayName: displayName,
 			Role:        model.UserRoleUser,
 			Status:      model.UserStatusActive,
-			AffCode:     newAffCode(),
 			CreatedAt:   now(),
 			UpdatedAt:   now(),
 		}
