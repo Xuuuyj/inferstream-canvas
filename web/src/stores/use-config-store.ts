@@ -4,11 +4,15 @@ import { useMemo } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-import { directAIProviderForProtocol, isWorkflowProtocol, type DirectAIProvider, type ModelChannelProtocol } from "@/lib/model-channel";
+import { applyFitModels, fitChannel, fitKeyForModel, fitKeySet, hasLegacyStoredKey, migrateFitKeys, normalizeFitApiKey, normalizeFitConfig, withFitKeySlot, withFitManualKey, withoutBridgeFitKeys, withoutFitKeys } from "@/lib/fit-config";
+import { clearHostedUploadCache } from "@/lib/fit-generate/lib/upload-client";
+import { inferStreamImageModel, inferStreamImageToken } from "@/lib/inferstream-image-access";
+import { FIT_ORIGIN, directAIProviderForProtocol, isWorkflowProtocol, type DirectAIProvider, type ModelChannelProtocol } from "@/lib/model-channel";
 import type { WorkflowRef, WorkflowSummary } from "@/lib/workflow-channel";
+import { clearFitStudioCache, loadFitStudio } from "@/services/api/fit/catalog";
+import { fetchFitTokenInfo } from "@/services/api/fit/token";
 import { apiGet } from "@/services/api/request";
 import type { AdminPublicSettings } from "@/services/api/admin";
-import { useUserStore } from "@/stores/use-user-store";
 
 export type LocalModelChannel = {
     id: string;
@@ -29,10 +33,16 @@ export type VideoMultiPromptItem = { prompt: string; duration: string };
 export type VideoElementReference = { id: string; kind: "image" | "video" | "audio"; name: string; type: string; dataUrl?: string; url?: string; storageKey?: string; bytes?: number; width?: number; height?: number; durationMs?: number };
 export type VideoElementItem = { name: string; description: string; references: VideoElementReference[] };
 
+/** 画布按模型类型分三把 openai.fit 令牌：视频（含上传参考素材、轮询、下载）、图片、文本（含语音）。 */
+export type FitKind = "video" | "image" | "text";
+/** 一个令牌槽位：令牌 id、名字、分组和完整密钥（只在本浏览器，永不上传）。 */
+export type FitKeySlot = { tokenId: number; name: string; group: string; apiKey: string };
+/** fitKeys 属于哪个 openai.fit 用户（fit 退出或换了人就清空槽位）；checkedAt 是最近一次用桥接页 hello 核对这个账号的时间（毫秒）。 */
+export type FitAccount = { userId: number; displayName: string; checkedAt?: number };
+
 export type AiConfig = {
     channelMode: "remote" | "local";
     baseUrl: string;
-    apiKey: string;
     model: string;
     imageModel: string;
     videoModel: string;
@@ -105,6 +115,18 @@ export type AiConfig = {
     videoChannelId: string;
     textChannelId: string;
     audioChannelId: string;
+    /** 视频、图片、文本三把令牌（openai.fit 桥接页取来，或在设置里换）；永不上传、不从服务器回填。 */
+    fitKeys: Partial<Record<FitKind, FitKeySlot>>;
+    /** 手动填写的令牌（高级备用，含 #apiKey= 链接导入）：不为空时视频、图片、文本都用它。 */
+    fitManualKey: string;
+    fitAccount?: FitAccount;
+    /** 手动令牌的名字和到期时间（三把槽位令牌时为空）。 */
+    fitTokenName?: string;
+    fitTokenExpiresAt?: number;
+    /** 模型列表最后一次按当前令牌同步的时间；换令牌时清零。 */
+    fitTokenCheckedAt?: number;
+    /** openai.fit 卡片高级参数的取值（画质、AI 润色、人脸处理），由 fit 参数面板写入，换算见 services/api/fit/values.ts。 */
+    fitAdvanced?: Record<string, boolean | number | string>;
 };
 
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
@@ -113,8 +135,9 @@ export type ModelCapabilities = Partial<Record<string, ModelCapability>>;
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
-    baseUrl: "https://api.openai.com",
-    apiKey: "",
+    baseUrl: FIT_ORIGIN,
+    fitKeys: {},
+    fitManualKey: "",
     model: "gpt-image-2",
     imageModel: "gpt-image-2",
     videoModel: "grok-imagine-video",
@@ -185,67 +208,46 @@ export const defaultConfig: AiConfig = {
     audioChannelId: "",
 };
 
+export type FitRefreshResult = { tokenName: string; counts: Record<ModelCapability, number>; errors: Partial<Record<FitKind, string>> };
+
 type ConfigStore = {
     config: AiConfig;
     publicSettings: AdminPublicSettings | null;
     isPublicSettingsLoading: boolean;
     isConfigOpen: boolean;
     shouldPromptContinue: boolean;
+    fitTokenError: string;
+    /** 每类令牌最近一次同步模型时的错误（例如这把令牌验证失败），不持久化。 */
+    fitKeyErrors: Partial<Record<FitKind, string>>;
     updateConfig: <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
     loadPublicSettings: () => Promise<void>;
     isAiConfigReady: (config: AiConfig, model: string) => boolean;
+    setFitManualKey: (apiKey: string) => void;
+    setFitKeySlot: (kind: FitKind, slot: FitKeySlot | null) => void;
+    setFitAccount: (account: FitAccount | undefined) => void;
+    clearFitKeys: () => void;
+    /** fit 退出或换了人：只清桥接页取来的三把令牌和 fitAccount，手动令牌保留。 */
+    clearBridgeFitKeys: () => void;
+    refreshFitModels: () => Promise<FitRefreshResult | null>;
     openConfigDialog: (shouldPromptContinue?: boolean) => void;
     setConfigDialogOpen: (isOpen: boolean) => void;
     clearPromptContinue: () => void;
 };
 
-function resolveEffectiveConfig(config: AiConfig, modelChannel: AdminPublicSettings["modelChannel"] | null, canUseRemoteChannel: boolean) {
-    const channelMode = canUseRemoteChannel ? (modelChannel?.allowCustomChannel ? config.channelMode : "remote") : "local";
-    if (channelMode === "local" || !modelChannel) {
-        const localChannels = normalizeLocalChannels(config);
-        const modelChannels = localChannels.filter((channel) => !isWorkflowProtocol(channel.protocol));
-        return {
-            ...config,
-            channelMode,
-            localChannels,
-            models: normalizeModelList(modelChannels.flatMap((channel) => channel.models)),
-            publicChannels: modelChannel?.channels || [],
-        };
-    }
-    const models = modelChannel.availableModels;
-    const textModels = filterChannelModelsByCapability(modelChannel.channels, "text", models);
-    const imageModels = filterChannelModelsByCapability(modelChannel.channels, "image", models);
-    const videoModels = filterChannelModelsByCapability(modelChannel.channels, "video", models);
-    const audioModels = filterChannelModelsByCapability(modelChannel.channels, "audio", models);
-    const fallbackTextModel = validDefault(modelChannel.defaultTextModel, textModels) || preferredModel(textModels, isTextModelName) || textModels[0] || "";
-    const fallbackModel = validDefault(modelChannel.defaultModel, textModels) || fallbackTextModel;
-    const fallbackImageModel = validDefault(modelChannel.defaultImageModel, imageModels) || preferredModel(imageModels, isImageModelName) || imageModels[0] || "";
-    const fallbackVideoModel = validDefault(modelChannel.defaultVideoModel, videoModels) || preferredModel(videoModels, isVideoModelName) || videoModels[0] || "";
-    const fallbackAudioModel = preferredModel(audioModels, isAudioModelName) || audioModels[0] || "";
+/** 画布服务器不再替用户调用模型：生成请求一律由浏览器直连 openai.fit。 */
+export function usesCanvasBackend() {
+    return false;
+}
+
+function resolveEffectiveConfig(config: AiConfig): AiConfig {
+    const localChannels = normalizeLocalChannels(config);
     return {
         ...config,
-        channelMode,
-        models,
-        imageModels,
-        videoModels,
-        textModels,
-        audioModels,
-        model: textModels.includes(config.model) ? config.model : fallbackModel,
-        imageModel: imageModels.includes(config.imageModel) ? config.imageModel : fallbackImageModel,
-        videoModel: videoModels.includes(config.videoModel) ? config.videoModel : fallbackVideoModel,
-        textModel: textModels.includes(config.textModel) ? config.textModel : fallbackTextModel || fallbackModel,
-        audioModel: audioModels.includes(config.audioModel) ? config.audioModel : fallbackAudioModel,
-        systemPrompt: modelChannel.systemPrompt,
-        publicChannels: modelChannel.channels || [],
+        channelMode: "local",
+        localChannels,
+        models: normalizeModelList(localChannels.flatMap((channel) => channel.models)),
+        publicChannels: [],
     };
-}
-
-function validDefault(model: string, models: string[]) {
-    return models.includes(model) ? model : "";
-}
-
-function preferredModel(models: string[], predicate: (model: string) => boolean) {
-    return models.find(predicate) || "";
 }
 
 function isVideoModelName(model: string) {
@@ -387,10 +389,13 @@ export function resolveModelForCapability(config: AiConfig, currentModel: string
     return selectableModels[0] || (matches(fallbackModel) ? fallbackModel : "");
 }
 
+/** 这个模型对应类型（视频、图片、文本；语音算文本）的令牌有了才算配好。 */
 function isAiConfigReady(config: AiConfig, model: string) {
-    const channel = localChannelForActiveModel({ ...config, model });
-    return Boolean(model.trim()) && (config.channelMode === "remote" || Boolean(channel?.baseUrl.trim() && channel?.apiKey.trim()));
+    return Boolean(model.trim() && fitKeyForModel(config, model));
 }
+
+/** 本次读到的本地配置里有旧版明文令牌，读完要写回一次。 */
+let legacyKeyLoaded = false;
 
 export const useConfigStore = create<ConfigStore>()(
     persist(
@@ -400,6 +405,8 @@ export const useConfigStore = create<ConfigStore>()(
             isPublicSettingsLoading: false,
             isConfigOpen: false,
             shouldPromptContinue: false,
+            fitTokenError: "",
+            fitKeyErrors: {},
             updateConfig: (key, value) =>
                 set((state) => ({
                     config: {
@@ -416,7 +423,46 @@ export const useConfigStore = create<ConfigStore>()(
                     set({ isPublicSettingsLoading: false });
                 }
             },
-            isAiConfigReady: (config, model) => isAiConfigReady(config, model),
+            isAiConfigReady: (config, model) => {
+                if (get().publicSettings?.auth?.inferStreamLogin === true && model === inferStreamImageModel) {
+                    return Boolean(inferStreamImageToken());
+                }
+                return isAiConfigReady(config, model);
+            },
+            setFitManualKey: (apiKey) => set((state) => ({ fitTokenError: "", fitKeyErrors: {}, config: withFitManualKey(state.config, apiKey) })),
+            setFitKeySlot: (kind, slot) => set((state) => ({ fitTokenError: "", fitKeyErrors: { ...state.fitKeyErrors, [kind]: undefined }, config: withFitKeySlot(state.config, kind, slot) })),
+            setFitAccount: (fitAccount) => set((state) => ({ config: { ...state.config, fitAccount } })),
+            clearFitKeys: () => {
+                // 连同这些令牌的模型、卡片缓存和它们传到 openai.fit 的参考素材地址（localStorage，地址不用令牌就能打开）一起清掉
+                clearFitStudioCache();
+                clearHostedUploadCache();
+                set((state) => ({ fitTokenError: "", fitKeyErrors: {}, config: withoutFitKeys(state.config) }));
+            },
+            clearBridgeFitKeys: () => {
+                clearFitStudioCache();
+                clearHostedUploadCache();
+                set((state) => ({ fitKeyErrors: {}, config: withoutBridgeFitKeys(state.config) }));
+            },
+            refreshFitModels: async () => {
+                const keys = fitKeySet(get().config);
+                const signature = JSON.stringify(keys);
+                const stillCurrent = () => JSON.stringify(fitKeySet(get().config)) === signature;
+                try {
+                    if (!keys.video && !keys.image && !keys.text) throw new Error("缺少可用的模型服务令牌");
+                    // 三把令牌各请求一次 /v1/models（同一把只请求一次）；只有手动令牌才读名字和到期时间（这个接口占 openai.fit 的限频）
+                    clearFitStudioCache({ keepCatalog: true });
+                    const manualKey = normalizeFitApiKey(get().config.fitManualKey);
+                    const [list, info] = await Promise.all([loadFitStudio(keys), manualKey ? fetchFitTokenInfo(manualKey).catch(() => null) : null]);
+                    if (!stillCurrent()) return null;
+                    const tokenName = info?.name || "";
+                    set((state) => ({ fitTokenError: "", fitKeyErrors: list.errors, config: applyFitModels(state.config, { list, tokenName, expiresAt: info?.expiresAt || 0, checkedAt: Date.now() }) }));
+                    return { tokenName, counts: list.counts, errors: list.errors };
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : "原模型服务令牌验证失败";
+                    if (stillCurrent()) set({ fitTokenError: message });
+                    throw new Error(message);
+                }
+            },
             openConfigDialog: (shouldPromptContinue = false) => set({ isConfigOpen: true, shouldPromptContinue }),
             setConfigDialogOpen: (isConfigOpen) => set({ isConfigOpen }),
             clearPromptContinue: () => set({ shouldPromptContinue: false }),
@@ -424,29 +470,23 @@ export const useConfigStore = create<ConfigStore>()(
         {
             name: CONFIG_STORE_KEY,
             partialize: (state) => ({ config: state.config }),
+            // 旧版存的明文令牌（顶层 apiKey、渠道里的 apiKey）读进来就按新格式写回一次，不等下次改设置
+            onRehydrateStorage: () => () => {
+                if (legacyKeyLoaded) queueMicrotask(() => useConfigStore.setState((state) => ({ config: { ...state.config } })));
+            },
             merge: (persisted, current) => {
                 const persistedState = (persisted || {}) as Partial<ConfigStore>;
-                const persistedConfig = (persistedState.config || {}) as Partial<AiConfig>;
-                const config = { ...defaultConfig, ...persistedConfig };
-                const localChannels = normalizeLocalChannels(config);
-                const modelChannels = localChannels.filter((channel) => !isWorkflowProtocol(channel.protocol));
-                const localModels = normalizeModelList(modelChannels.flatMap((channel) => channel.models));
+                const { apiKey: _legacyKey, ...persistedConfig } = (persistedState.config || {}) as Partial<AiConfig> & { apiKey?: unknown };
+                // 旧版只有一把 apiKey：迁移成手动令牌（三类都用它），旧字段不再留在配置里；槽位里格式不对的丢掉
+                legacyKeyLoaded = hasLegacyStoredKey((persistedState.config || {}) as Partial<AiConfig>);
+                const config = normalizeFitConfig({ ...defaultConfig, ...persistedConfig, ...migrateFitKeys((persistedState.config || {}) as Partial<AiConfig>) });
+                const modelChannels = config.localChannels;
                 return {
                     ...current,
                     config: {
                         ...config,
-                        localChannels,
-                        models: localModels,
-                        baseUrl: modelChannels[0]?.baseUrl || config.baseUrl,
-                        apiKey: modelChannels[0]?.apiKey || config.apiKey,
-                        imageChannelId: config.imageChannelId || modelChannels[0]?.id || "",
-                        videoChannelId: config.videoChannelId || modelChannels[0]?.id || "",
-                        textChannelId: config.textChannelId || modelChannels[0]?.id || "",
-                        audioChannelId: config.audioChannelId || modelChannels[0]?.id || "",
-                        activeChannelId: config.activeChannelId || "",
                         syncStorageConfig: config.syncStorageConfig === true,
                         syncWebDAVStorageConfig: config.syncWebDAVStorageConfig === true,
-                        channelMode: config.channelMode || "remote",
                         imageModel: config.imageModel || config.model,
                         videoModel: config.videoModel || "grok-imagine-video",
                         textModel: config.textModel || config.model,
@@ -493,11 +533,7 @@ function normalizeModelList(models: string[]) {
 
 export function useEffectiveConfig() {
     const config = useConfigStore((state) => state.config);
-    const modelChannel = useConfigStore((state) => state.publicSettings?.modelChannel || null);
-    const token = useUserStore((state) => state.token);
-    const user = useUserStore((state) => state.user);
-    const canUseRemoteChannel = Boolean(token && user && (user.role === "admin" || modelChannel?.allowUserRemoteChannel === true));
-    return useMemo(() => resolveEffectiveConfig(config, modelChannel, canUseRemoteChannel), [canUseRemoteChannel, config, modelChannel]);
+    return useMemo(() => resolveEffectiveConfig(config), [config]);
 }
 
 export function buildApiUrl(baseUrl: string, path: string) {
@@ -529,28 +565,9 @@ function normalizeVersionedBaseUrl(baseUrl: string) {
     }
 }
 
+/** 永远只有 openai.fit 一条渠道；令牌按 config.model 的类型现算（视频、图片、文本三把之一，手动令牌优先），不存进渠道。 */
 export function normalizeLocalChannels(config: Partial<AiConfig>): LocalModelChannel[] {
-    const channels = Array.isArray(config.localChannels) ? config.localChannels : [];
-    const normalized: LocalModelChannel[] = channels.map((channel, index) => ({
-        id: channel.id || `local-${index + 1}`,
-        protocol: channel.protocol || "openai",
-        name: typeof channel.name === "string" ? channel.name : `本地渠道 ${index + 1}`,
-        baseUrl: channel.baseUrl || "",
-        apiKey: channel.apiKey || "",
-        models: Array.isArray(channel.models) ? channel.models.filter(Boolean) : [],
-        modelCapabilities: channel.modelCapabilities || {},
-        ...(isWorkflowProtocol(channel.protocol || "") ? {
-            uploadApiKey: channel.uploadApiKey || "",
-            bridgeId: channel.bridgeId || "",
-            comfyUrl: channel.comfyUrl || "",
-            workflowDir: channel.workflowDir || "",
-            workflowSummaries: Array.isArray(channel.workflowSummaries) ? channel.workflowSummaries : [],
-        } : {}),
-    }));
-    if (!normalized.length) {
-        normalized.push({ id: "local-default", protocol: "openai", name: "本地直连", baseUrl: config.baseUrl || defaultConfig.baseUrl, apiKey: config.apiKey || "", models: Array.isArray(config.models) ? config.models.filter(Boolean) : [] });
-    }
-    return normalized;
+    return [{ ...fitChannel(config), apiKey: fitKeyForModel(config, config.model || "") }];
 }
 
 export function channelIdForActiveModel(config: AiConfig) {

@@ -250,6 +250,9 @@ export type AdminPublicSettings = {
         linuxDo: {
             enabled: boolean;
         };
+        /** 「用 openai.fit 登录」是否可用：后端按 FIT_CONNECT_SECRET 现算，只读，后台保存不起作用。 */
+        fitLogin?: boolean;
+        inferStreamLogin?: boolean;
     };
     storage: {
         mode: string;

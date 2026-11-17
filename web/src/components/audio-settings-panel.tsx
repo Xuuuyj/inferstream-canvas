@@ -14,6 +14,7 @@ import { geminiTtsVoiceOptions, normalizeGeminiTtsVoice } from "@/lib/gemini-tts
 import { isMiniMaxTtsConfig, miniMaxTtsFormatOptions, normalizeMiniMaxTtsFormat, normalizeMiniMaxTtsSpeed, normalizeMiniMaxTtsVoice } from "@/lib/minimax-tts";
 import { miniMaxTtsVoiceOptions } from "@/lib/minimax-tts-voices";
 import { type CanvasTheme } from "@/lib/canvas-theme";
+import { fitKeyFor, missingFitKeyMessage } from "@/lib/fit-config";
 import { channelProtocolForConfig, type AiConfig } from "@/stores/use-config-store";
 
 const speedOptions = ["0.75", "1", "1.25", "1.5"];
@@ -38,7 +39,7 @@ export function AudioSettingsPanel({ config, onConfigChange, theme, showTitle = 
         <ImageSettingsTheme theme={theme}>
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-lg font-semibold">音频设置</div> : null}
-                {gemini ? <GeminiAudioSettings config={config} onConfigChange={onConfigChange} theme={theme} /> : isMimoTtsModel(model) ? <MiMoAudioSettings config={config} model={model} onConfigChange={onConfigChange} theme={theme} /> : <AudioSpeechSettings config={config} model={model} glm={isGlmTtsModel(model)} grok={grok} miniMax={miniMax} onConfigChange={onConfigChange} theme={theme} />}
+                {!config.audioModels.length ? <div className="text-sm" style={{ color: theme.node.muted }}>{fitKeyFor(config, "text") ? "当前暂无可用的语音模型" : missingFitKeyMessage("text")}</div> : gemini ? <GeminiAudioSettings config={config} onConfigChange={onConfigChange} theme={theme} /> : isMimoTtsModel(model) ? <MiMoAudioSettings config={config} model={model} onConfigChange={onConfigChange} theme={theme} /> : <AudioSpeechSettings config={config} model={model} glm={isGlmTtsModel(model)} grok={grok} miniMax={miniMax} onConfigChange={onConfigChange} theme={theme} />}
             </div>
         </ImageSettingsTheme>
     );

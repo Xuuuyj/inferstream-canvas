@@ -6,6 +6,9 @@ import { App, Button, Image, Tag } from "antd";
 import { nanoid } from "nanoid";
 import { useRouter } from "next/navigation";
 
+import { SiteCredits } from "@/components/layout/github-link";
+import { PromptCover } from "@/components/prompts/prompt-cover";
+import { HOME_BANNERS, HOME_CTA } from "@/constant/promo";
 import { fetchPrompts, type Prompt } from "@/services/api/prompts";
 import { cn } from "@/lib/utils";
 import { uploadAssetMediaFile } from "@/services/file-storage";
@@ -15,7 +18,7 @@ import { AssetPickerModal } from "./canvas/components/asset-picker-modal";
 import { CanvasAssistantComposer } from "./canvas/components/canvas-assistant-composer";
 import { useCanvasStore } from "./canvas/stores/use-canvas-store";
 import { canvasResourceLabel } from "./canvas/utils/canvas-resource-references";
-import { HomeBannerCarousel, type HomeBanner } from "./home-banner-carousel";
+import { HomeBannerCarousel } from "./home-banner-carousel";
 import {
     MAX_CANVAS_AGENT_SKILLS,
     CanvasNodeType,
@@ -25,16 +28,6 @@ import {
     type InsertAssetPayload,
     type PendingAgentAsset,
 } from "./canvas/types";
-
-
-const HOME_BANNERS: HomeBanner[] = [
-    { imageUrl: "https://gcore.jsdelivr.net/gh/tigerowo/cdn-tdeh@v0.7/img/infinite-canvas/88.webp", videoUrl: "", linkUrl: "https://88api.ai/sign-up?aff=25ty", alt: "1" },
-    { imageUrl: "https://gcore.jsdelivr.net/gh/tigerowo/cdn-tdeh@v0.6/img/infinite-canvas/metaso.webp", videoUrl: "", linkUrl: "https://metaso.cn/minimax-h3/?s=tt", alt: "2" },
-    { imageUrl: "https://gcore.jsdelivr.net/gh/tigerowo/cdn-tdeh@v0.5/img/infinite-canvas/3ddirectortl.webp", videoUrl: "", linkUrl: "", alt: "3" },
-    { imageUrl: "https://gcore.jsdelivr.net/gh/tigerowo/cdn-tdeh@v0.4/img/infinite-canvas/agent.webp", videoUrl: "https://gcore.jsdelivr.net/gh/tigerowo/cdn-tdeh@v0.4/img/infinite-canvas/agent.webm", linkUrl: "", alt: "4" },
-    { imageUrl: "https://gcore.jsdelivr.net/gh/tigerowo/cdn-tdeh@v0.4/img/infinite-canvas/panorama.webp", videoUrl: "", linkUrl: "", alt: "5" },
-    { imageUrl: "https://gcore.jsdelivr.net/gh/tigerowo/cdn-tdeh@v0.4/img/infinite-canvas/3ddirector.webp", videoUrl: "", linkUrl: "", alt: "6" },
-];
 
 function toPendingAgentAsset(payload: InsertAssetPayload, label: string): PendingAgentAsset {
     const nodeId = nanoid();
@@ -167,7 +160,7 @@ export default function IndexPage() {
                         <div className="max-w-2xl text-center">
                             <div className="flex flex-wrap items-center justify-center gap-3">
                                 <h2 className="text-3xl font-semibold text-stone-950 dark:text-stone-100">沉淀每一次好结果</h2>
-                                <Button type="primary" size="middle" href="https://prompts.tdeh.top/" target="_blank" className="-translate-y-[6px]">提示词仓库</Button>
+                                <Button type="primary" size="middle" href={HOME_CTA.url} target="_blank" rel="noopener noreferrer" className="-translate-y-[6px]">{HOME_CTA.label}</Button>
                             </div>
                             <p className="mt-3 text-base leading-7 text-stone-500 dark:text-stone-400">收藏稳定出图的提示词、参考风格和结果图片，让下一次创作从已有经验开始。</p>
                         </div>
@@ -190,7 +183,7 @@ export default function IndexPage() {
                                     index === 3 && "md:col-span-2",
                                 )}
                             >
-                                <img src={item.coverUrl} alt={item.title} className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]" />
+                                <PromptCover src={item.coverUrl} alt={item.title} className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]" />
                                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/35 to-transparent p-4 text-white">
                                     <div className="mb-2 flex flex-wrap gap-1.5">
                                         {item.tags.slice(0, 2).map((tag) => (
@@ -206,6 +199,7 @@ export default function IndexPage() {
                         ))}
                     </div>
                 </section>
+                <SiteCredits className="pb-8" />
             </section>
             <AssetPickerModal
                 open={assetPickerOpen}

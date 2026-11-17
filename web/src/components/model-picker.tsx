@@ -1,13 +1,20 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { Cpu } from "lucide-react";
 
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { useAutoDLWorkflowNames } from "@/hooks/use-autodl-workflow";
-import { isWorkflowProtocol } from "@/lib/model-channel";
+import { useFitPricing } from "@/hooks/use-fit-pricing";
+import { useFitProfile } from "@/hooks/use-fit-profile";
+import { ModelPriceHint } from "@/lib/fit-generate/components/model-price-hint";
+import { fitTokenPriceText, type FitPricing } from "@/lib/fit-price";
+import { inferStreamImageModel } from "@/lib/inferstream-image-access";
+import { FIT_CHANNEL_ID, isWorkflowProtocol } from "@/lib/model-channel";
 import { cn } from "@/lib/utils";
 import type { WorkflowRef } from "@/lib/workflow-channel";
+import { fitKeyFor, hasAnyFitKey, missingFitKeyMessage } from "@/lib/fit-config";
+import { fitPriceSelection } from "@/services/api/fit/values";
 import { filterModelsByCapability, normalizeLocalChannels, useConfigStore, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 
@@ -34,20 +41,24 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
     const token = useUserStore((state) => state.token);
     const userReady = useUserStore((state) => state.isReady);
     const publicSettings = useConfigStore((state) => state.publicSettings);
+    const inferStreamImages = capability === "image" && publicSettings?.auth?.inferStreamLogin === true;
     const workflowEnabled = Boolean(onWorkflowChange && capability && capability !== "text");
+    // 这类模型用哪把令牌：语音跟文本走同一把；没指定类型时有任何一把就算有
+    const keyKind = capability === "audio" ? "text" : capability;
+    const hasFitToken = Boolean(keyKind ? fitKeyFor(config, keyKind) : hasAnyFitKey(config));
     const channelOptions = useMemo<PickerOption[]>(() => {
         const channels =
             config.channelMode === "remote"
-                ? config.publicChannels.map((channel) => ({ id: channel.id, protocol: channel.protocol, name: channel.name || "云端渠道", baseUrl: channel.baseUrl, models: channel.models, modelCapabilities: channel.modelCapabilities, workflows: channel.workflows || [] }))
-                : normalizeLocalChannels(config).map((channel) => ({ id: channel.id, protocol: channel.protocol, name: channel.name || "本地渠道", baseUrl: channel.baseUrl, models: channel.models, modelCapabilities: channel.modelCapabilities, workflows: channel.workflowSummaries || [] }));
-        const filtered = channels.filter((channel) => !isWorkflowProtocol(channel.protocol || "")).flatMap((channel) => filterModelsByCapability(channel.models ?? [], capability, channel.protocol || "", channel.modelCapabilities).map((model) => ({ key: `${channel.id}::${model}`, channelId: channel.id, channelName: channel.name, protocol: channel.protocol, baseUrl: channel.baseUrl, model })));
+                ? config.publicChannels.map((channel) => ({ id: channel.id, protocol: channel.protocol, name: channel.id === FIT_CHANNEL_ID ? "旧模型服务" : channel.name || "云端渠道", baseUrl: channel.baseUrl, models: channel.models, modelCapabilities: channel.modelCapabilities, workflows: channel.workflows || [] }))
+                : normalizeLocalChannels(config).map((channel) => ({ id: channel.id, protocol: channel.protocol, name: channel.id === FIT_CHANNEL_ID ? "旧模型服务" : channel.name || "本地渠道", baseUrl: channel.baseUrl, models: channel.models, modelCapabilities: channel.modelCapabilities, workflows: channel.workflowSummaries || [] }));
+        const filtered = inferStreamImages ? [{ key: inferStreamImageModel, channelName: "InferStream", model: inferStreamImageModel }] : channels.filter((channel) => !isWorkflowProtocol(channel.protocol || "")).flatMap((channel) => filterModelsByCapability(channel.models ?? [], capability, channel.protocol || "", channel.modelCapabilities).map((model) => ({ key: `${channel.id}::${model}`, channelId: channel.id, channelName: channel.name, protocol: channel.protocol, baseUrl: channel.baseUrl, model })));
         if (!workflowEnabled || !token) return filtered;
         const scope = config.channelMode === "remote" ? "system" : "personal";
         return [...filtered, ...channels.flatMap((channel) => isWorkflowProtocol(channel.protocol || "") ? channel.workflows.filter((entry) => entry.enabled && entry.capability === capability && entry.provider === channel.protocol).map((entry) => {
             const ref: WorkflowRef = { scope, channelId: channel.id || "", kind: entry.kind, workflowId: entry.workflowId };
             return { key: `workflow:${JSON.stringify([ref.scope, ref.channelId, ref.kind, ref.workflowId])}`, channelId: channel.id, channelName: channel.name, protocol: channel.protocol, baseUrl: channel.baseUrl, model: "", workflowRef: ref, label: entry.title || entry.workflowId };
         }) : [])];
-    }, [capability, config, token, workflowEnabled]);
+    }, [capability, config, inferStreamImages, token, workflowEnabled]);
     const modelLabel = useAutoDLWorkflowNames(channelOptions);
     const currentOption = useMemo<PickerOption | undefined>(() => {
         if (workflowRef && workflowEnabled) return channelOptions.find((item) => "workflowRef" in item && item.key === `workflow:${JSON.stringify([workflowRef.scope, workflowRef.channelId, workflowRef.kind, workflowRef.workflowId])}`);
@@ -57,6 +68,14 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
     const options = channelOptions;
     const current = workflowRef && workflowEnabled ? (currentOption && "label" in currentOption ? currentOption.label : "") : value || "";
     const currentValue = current && currentOption ? currentOption.key : "";
+    // openai.fit 渠道的模型显示价格；选中的模型和 fit 生成台一样按当前清晰度、时长估价
+    const pricing = useFitPricing(channelOptions.some((item) => fitModelOf(item)));
+    const selectedFitModel = current ? fitModelOf(currentOption) : "";
+    const selectedProfile = useFitProfile(pricing?.models.has(selectedFitModel) ? selectedFitModel : undefined);
+    const selectedPrice = pricing?.models.has(selectedFitModel) ? (
+        <FitPrice pricing={pricing} model={selectedFitModel} selection={selectedProfile ? fitPriceSelection(selectedProfile, config) : undefined} className="truncate text-[10px] leading-3" />
+    ) : null;
+    const triggerText = workflowRef && workflowEnabled ? current || "工作流已停用、未公开或删除，请重新选择" : modelLabel(current, currentOption) || placeholder;
 
 	useEffect(() => {
 		if (workflowRef && workflowEnabled) {
@@ -84,8 +103,9 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
             open={open}
             value={current ? currentValue : ""}
             onOpenChange={(nextOpen) => {
-                if (nextOpen && !options.length && config.channelMode === "local") {
-                    onMissingConfig?.();
+                // 没填令牌才去配置；有令牌但这一类没有模型时照常展开，告诉用户 openai.fit 暂无这类模型。
+                if (nextOpen && !inferStreamImages && !hasFitToken && onMissingConfig) {
+                    onMissingConfig();
                     return;
                 }
                 if (nextOpen) window.dispatchEvent(new CustomEvent("model-picker-open", { detail: pickerId }));
@@ -103,6 +123,7 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
                     "canvas-composer-model-picker h-8 w-fit max-w-full gap-2 rounded-full border border-input bg-transparent px-3 text-sm font-normal shadow-sm transition-colors",
                     fullWidth ? "w-full min-w-0 justify-start" : "min-w-[9rem] justify-start",
                     "data-[state=open]:border-ring data-[state=open]:ring-2 data-[state=open]:ring-ring/20",
+                    selectedPrice && "py-0.5",
                     className,
                 )}
                 onMouseDown={(event) => event.stopPropagation()}
@@ -110,7 +131,14 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
                 title={workflowRef && workflowEnabled && !currentOption ? "工作流已停用、未公开或删除，请重新选择" : current || placeholder}
             >
                 <ModelIcon model={current} />
-                <span className="canvas-model-picker-text min-w-0 flex-1 truncate text-left">{workflowRef && workflowEnabled ? current || "工作流已停用、未公开或删除，请重新选择" : modelLabel(current, currentOption) || placeholder}</span>
+                {selectedPrice ? (
+                    <span className="canvas-model-picker-text flex min-w-0 flex-1 flex-col text-left leading-4">
+                        <span className="truncate">{triggerText}</span>
+                        {selectedPrice}
+                    </span>
+                ) : (
+                    <span className="canvas-model-picker-text min-w-0 flex-1 truncate text-left">{triggerText}</span>
+                )}
             </SelectTrigger>
             <SelectContent
                 data-canvas-no-zoom
@@ -125,12 +153,17 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
                 {options.length ? (
                     options.map((option) => (
                         <SelectItem key={option.key} value={option.key} textValue={`${"workflowRef" in option ? option.label : modelLabel(option.model, option)} ${option.model} ${option.channelName}`}>
-                            <ModelLabel model={"workflowRef" in option ? option.workflowRef.workflowId : option.model} label={"workflowRef" in option ? `工作流 · ${option.label}` : modelLabel(option.model, option)} channelName={option.channelName} />
+                            <ModelLabel
+                                model={"workflowRef" in option ? option.workflowRef.workflowId : option.model}
+                                label={"workflowRef" in option ? `工作流 · ${option.label}` : modelLabel(option.model, option)}
+                                channelName={option.channelName}
+                                price={pricing?.models.has(fitModelOf(option)) ? <FitPrice pricing={pricing} model={fitModelOf(option)} className="truncate text-[11px]" /> : null}
+                            />
                         </SelectItem>
                     ))
                 ) : (
                     <SelectItem value="__empty__" disabled>
-                        {config.channelMode === "remote" ? "暂无可用模型" : "请先到配置里拉取模型列表"}
+                        {!hasFitToken ? (keyKind ? missingFitKeyMessage(keyKind) : "请在设置中查看模型服务状态") : capability === "audio" ? "当前暂无可用的语音模型" : "当前暂无这类模型"}
                     </SelectItem>
                 )}
             </SelectContent>
@@ -138,14 +171,43 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
     );
 }
 
-function ModelLabel({ model, label, channelName }: { model: string; label?: string; channelName?: string }) {
+function ModelLabel({ model, label, channelName, price }: { model: string; label?: string; channelName?: string; price?: ReactNode }) {
+    const name = (
+        <span className="truncate" title={model}>
+            {label || model}
+        </span>
+    );
     return (
         <span className="flex min-w-0 items-center gap-2">
             <ModelIcon model={model} />
-            <span className="truncate" title={model}>{label || model}</span>
+            {price ? (
+                <span className="flex min-w-0 flex-col">
+                    {name}
+                    {price}
+                </span>
+            ) : (
+                name
+            )}
             {channelName ? <span className="ml-auto max-w-24 shrink-0 truncate text-xs opacity-50">{channelName}</span> : null}
         </span>
     );
+}
+
+/** 选项是 openai.fit 渠道里的模型时返回模型名，工作流和别的渠道返回空串。 */
+function fitModelOf(option: PickerOption | undefined) {
+    return option && !("workflowRef" in option) && option.channelId === FIT_CHANNEL_ID ? option.model : "";
+}
+
+/**
+ * openai.fit 模型的价格，和 fit 模型广场、在线生成台同一套代码算：按 token 计价的写输入、输出两项（fitTokenPriceText），其余用 fit 生成台的 ModelPriceHint；
+ * selection 是选中模型当前的清晰度、时长，ModelPriceHint 拿它估一条的价格。
+ */
+export function FitPrice({ pricing, model, selection, className }: { pricing: FitPricing; model: string; selection?: { resolution: string | null; seconds: number | null }; className?: string }) {
+    const entry = pricing.models.get(model);
+    if (!entry) return null;
+    const tokenText = fitTokenPriceText(entry, pricing);
+    if (tokenText) return <span className={cn("font-mono text-xs tabular-nums text-muted-foreground", className)}>{tokenText}</span>;
+    return <ModelPriceHint model={entry} priceRate={pricing.priceRate} usdExchangeRate={pricing.usdExchangeRate} resolution={selection?.resolution} seconds={selection?.seconds} className={className} />;
 }
 
 function ModelIcon({ model }: { model: string }) {

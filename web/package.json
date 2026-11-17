@@ -9,7 +9,9 @@
         "build:bridge": "bun ../canvas-agent/scripts/build-comfy-bridge.ts",
         "start": "next start",
         "format": "prettier --write .",
-        "format:check": "prettier --check ."
+        "format:check": "prettier --check .",
+        "sync:fit": "bun scripts/sync-fit-generate.ts",
+        "check:fit": "bun scripts/sync-fit-generate.ts --check"
     },
     "dependencies": {
         "@ant-design/icons": "^6.1.1",

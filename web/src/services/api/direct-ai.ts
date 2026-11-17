@@ -8,7 +8,7 @@ import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { buildApiUrl, localChannelForActiveModel, type AiConfig, type DirectAIProvider } from "@/stores/use-config-store";
 import { directProtocolAdapters } from "./protocols/direct-registry";
 import { isPlainRecord, readPath, readString } from "./protocols/shared";
-import { tokenDanceRecoveryMessage, tokenDanceTaskID } from "./protocols/tokendance";
+import { tokenDanceDirectProtocol, tokenDanceRecoveryMessage, tokenDanceTaskID } from "./protocols/tokendance";
 import type { DirectProtocolAdapter, DirectVideoResponse } from "./protocols/types";
 
 type DirectRequestBody = Record<string, unknown> | FormData;
@@ -351,7 +351,7 @@ async function requestDirectJSON(protocol: DirectProtocolAdapter, url: string, a
             signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
         });
         const payload = await readDirectResponse(response);
-        const recoveryMessage = protocol.headers?.["X-App-URL"] ? tokenDanceRecoveryMessage(response.headers.get("TokenDance-Recovery-Action")) : "";
+        const recoveryMessage = protocol === tokenDanceDirectProtocol ? tokenDanceRecoveryMessage(response.headers.get("TokenDance-Recovery-Action")) : "";
         if (!response.ok) throw new Error(recoveryMessage || protocol.readError(payload) || `上游请求失败：${response.status}`);
         const error = protocol.readError(payload);
         if (error) throw new Error(error);

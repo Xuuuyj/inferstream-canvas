@@ -3,9 +3,11 @@
 import { type CSSProperties, type ReactNode } from "react";
 import { Input, Slider, Switch } from "antd";
 
+import { FitSettingsPanel, type FitConfigChange } from "@/components/fit-video-settings-panel";
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { useAutoDLWorkflow } from "@/hooks/use-autodl-workflow";
 import { getAutoDLCapabilities, isAutoDLConfig, normalizeAutoDLDuration } from "@/lib/autodl";
+import { isFitConfig } from "@/lib/fit-config";
 import { isMiniMaxH3Config } from "@/lib/minimax-video";
 import { boolConfig, isSeedanceFastOrMiniModel, isSeedanceVideoModel, normalizeSeedanceRatio, normalizeSeedanceResolution, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
@@ -50,6 +52,12 @@ export function VideoSettingsPanel({ config, modelName, onConfigChange, theme, s
     const model = modelName || config.model || config.videoModel;
     const autodl = isAutoDLConfig(config, model);
     const { data: workflow } = useAutoDLWorkflow(config, model);
+    if (isFitConfig(config) && model)
+        return (
+            <ImageSettingsTheme theme={theme}>
+                <FitSettingsPanel kind="video" config={config} model={model} onConfigChange={onConfigChange as FitConfigChange} theme={theme} showTitle={showTitle} className={className} visualOnly={visualOnly} />
+            </ImageSettingsTheme>
+        );
     if (isAPIMartKlingV26Config(config, modelName || config.model || config.videoModel) || isAPIMartKlingV3Config(config, modelName || config.model || config.videoModel) || isKIEKlingV3Config(config, modelName || config.model || config.videoModel)) {
         return <KlingV26VideoSettingsPanel config={config} modelName={modelName} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} hideNegativePrompt={hideNegativePrompt} visualOnly={visualOnly} />;
     }

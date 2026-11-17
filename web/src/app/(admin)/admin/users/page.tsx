@@ -2,7 +2,7 @@
 
 import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { ProTable, type ProColumns } from "@ant-design/pro-components";
-import { Avatar, Button, Card, Col, Divider, Flex, Form, Input, InputNumber, Modal, Row, Select, Space, Tag, Tooltip, Typography } from "antd";
+import { Avatar, Button, Card, Col, Flex, Form, Input, Modal, Row, Select, Space, Tag, Tooltip, Typography } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useState } from "react";
 
@@ -22,7 +22,7 @@ const statusOptions = [
 ];
 
 export default function AdminUsersPage() {
-    const { users, keyword, page, pageSize, total, isLoading, searchUsers, changePage, changePageSize, resetFilters, refreshUsers, saveUser: saveAdminUser, adjustCredits, deleteUser } = useAdminUsers();
+    const { users, keyword, page, pageSize, total, isLoading, searchUsers, changePage, changePageSize, resetFilters, refreshUsers, saveUser: saveAdminUser, deleteUser } = useAdminUsers();
     const [form] = Form.useForm<UserFormValues>();
     const [keywordText, setKeywordText] = useState(keyword);
     const [editingUser, setEditingUser] = useState<Partial<AdminUser> | null>(null);
@@ -40,11 +40,6 @@ export default function AdminUsersPage() {
         delete userValue.credits;
         await saveAdminUser({ ...editingUser, ...userValue, password: value.password || undefined });
         setEditingUser(null);
-    };
-
-    const saveCredits = async () => {
-        if (!editingUser?.id) return;
-        await adjustCredits(editingUser.id, form.getFieldValue("credits") || 0);
     };
 
     const columns: ProColumns<AdminUser>[] = [
@@ -79,18 +74,6 @@ export default function AdminUsersPage() {
             render: (_, item) => <Tag color={item.status === "ban" ? "red" : "green"}>{item.status === "ban" ? "禁用" : "正常"}</Tag>,
         },
         {
-            title: "算力点",
-            dataIndex: "credits",
-            width: 100,
-            render: (_, item) => <Typography.Text>{item.credits}</Typography.Text>,
-        },
-        {
-            title: "Linux.do",
-            dataIndex: "linuxDoId",
-            width: 140,
-            render: (_, item) => <Typography.Text type="secondary">{item.linuxDoId || "-"}</Typography.Text>,
-        },
-        {
             title: "最近登录",
             dataIndex: "lastLoginAt",
             width: 180,
@@ -123,7 +106,7 @@ export default function AdminUsersPage() {
                                 <Form.Item label="关键词">
                                     <Input.Search
                                         value={keywordText}
-                                        placeholder="搜索用户名、昵称、邮箱或 Linux.do ID"
+                                        placeholder="搜索用户名、昵称或邮箱"
                                         allowClear
                                         enterButton={<SearchOutlined />}
                                         onSearch={() => searchUsers(keywordText)}
@@ -219,24 +202,6 @@ export default function AdminUsersPage() {
                             </Form.Item>
                         </Col>
                     </Row>
-                    {editingUser?.id ? (
-                        <>
-                            <Divider style={{ margin: "4px 0 16px" }} />
-                            <Typography.Text strong>算力点调整</Typography.Text>
-                            <Row gutter={14}>
-                                <Col span={12}>
-                                    <Form.Item label="算力点">
-                                        <Space.Compact style={{ width: "100%" }}>
-                                            <Form.Item name="credits" noStyle>
-                                                <InputNumber min={0} step={0.01} precision={2} style={{ width: "100%" }} />
-                                            </Form.Item>
-                                            <Button onClick={() => void saveCredits()}>调整</Button>
-                                        </Space.Compact>
-                                    </Form.Item>
-                                </Col>
-                            </Row>
-                        </>
-                    ) : null}
                 </Form>
             </Modal>
 

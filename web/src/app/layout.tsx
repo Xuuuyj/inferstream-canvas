@@ -7,8 +7,11 @@ import "./globals.css";
 import React from "react";
 
 export const metadata: Metadata = {
-    title: "无限画布",
-    description: "一个无限画布创作工具",
+    metadataBase: new URL("https://canvas.inferstream.cn"),
+    title: "InferStream 无限画布",
+    description: "InferStream 无限画布，支持文本、图片和视频创作。",
+    // 渲染成 <meta name="referrer" content="strict-origin">：对外只带站点源，不带路径（令牌链接的 # 片段本来就不外发）。
+    referrer: "strict-origin",
 };
 
 export default function RootLayout({

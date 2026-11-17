@@ -4,20 +4,18 @@ import { CheckCircleOutlined, DeleteOutlined, FormatPainterOutlined, LoadingOutl
 import { json } from "@codemirror/lang-json";
 import { App, Button, Card, Col, Drawer, Flex, Form, Input, InputNumber, Modal, Row, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography } from "antd";
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { EditorView } from "@uiw/react-codemirror";
 
 import { ChannelModelSelectorModal } from "@/components/channel-model-selector-modal";
-import { videoResolutionOptions } from "@/components/video-settings-panel";
 import type { WorkflowChannelSettings } from "@/components/workflow/workflow-channel-pane";
 import { useAutoDLWorkflowNames } from "@/hooks/use-autodl-workflow";
-import { isWorkflowProtocol, modelChannelApiKeyUrls, modelChannelDefaultBaseUrls, modelChannelProtocolOptions } from "@/lib/model-channel";
-import { startTokenDanceOAuth } from "@/lib/tokendance-oauth";
-import { fetchAdminSettings, fetchChannelModels, measureAdminStorageProvider, saveAdminSettings, testChannelModel, type AdminModelChannel, type AdminModelCost, type AdminSettings, type AdminStorageProvider } from "@/services/api/admin";
+import { FIT_KEYS_URL, fitProtocolOptions, isWorkflowProtocol, modelChannelDefaultBaseUrls } from "@/lib/model-channel";
+import { fetchAdminSettings, fetchChannelModels, measureAdminStorageProvider, saveAdminSettings, testChannelModel, type AdminModelChannel, type AdminSettings, type AdminStorageProvider } from "@/services/api/admin";
 import { clearStorageConfigCache as clearMediaStorageConfigCache } from "@/services/file-storage";
 import { clearStorageConfigCache as clearImageStorageConfigCache } from "@/services/image-storage";
 import { useUserStore } from "@/stores/use-user-store";
-import { filterChannelModelsByCapability, type ModelCapabilities } from "@/stores/use-config-store";
+import type { ModelCapabilities } from "@/stores/use-config-store";
 
 const CodeMirror = dynamic(() => import("@uiw/react-codemirror"), { ssr: false });
 const WorkflowChannelPane = dynamic(() => import("@/components/workflow/workflow-channel-pane").then((module) => module.WorkflowChannelPane), { ssr: false });
@@ -83,25 +81,11 @@ export default function AdminSettingsPage() {
     const [isLoading, setIsLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [measuringProviderIndex, setMeasuringProviderIndex] = useState<number | null>(null);
-    const [modelCosts, setModelCosts] = useState<AdminModelCost[]>([]);
     const [knownModels, setKnownModels] = useState<string[]>([]);
-    const publicModels = Form.useWatch(["public", "modelChannel", "availableModels"], form) || [];
-    const publicVideoModels = useMemo(() => new Set(filterChannelModelsByCapability(channels, "video", publicModels)), [channels, publicModels]);
-    const orderedPublicModels = useMemo(() => uniqueModels([
-        ...publicVideoModels,
-        ...(["audio", "image", "text"] as const).flatMap((capability) => filterChannelModelsByCapability(channels, capability, publicModels)),
-        ...publicModels,
-    ]), [channels, publicModels, publicVideoModels]);
-    const publicWorkflows = Form.useWatch(["public", "modelChannel", "availableWorkflows"], form) || [];
     const storageProviders = Form.useWatch(["private", "storage", "providers"], form) || [];
     const channelProtocol = Form.useWatch("protocol", channelForm);
     const channelBaseUrl = Form.useWatch("baseUrl", channelForm);
     const modelLabel = useAutoDLWorkflowNames([...channels, { protocol: channelProtocol, baseUrl: channelBaseUrl }]);
-    const publicModelLabel = (model: string) => modelLabel(model, channels.find((channel) => channel.protocol === "autodl" && channel.models.includes(model)));
-    const channelApiKeyUrl = channelProtocol ? modelChannelApiKeyUrls[channelProtocol] : undefined;
-    const channelModels = useMemo(() => collectChannelModels(channels), [channels]);
-    const channelWorkflows = useMemo(() => collectChannelWorkflows(channels), [channels]);
-    const channelTableData = useMemo(() => channels.map((channel, index) => ({ ...channel, _index: index, _rowKey: `${index}-${channel.name}-${channel.baseUrl}` })), [channels]);
     const activeMode = editorMode[activeTab];
     const activeJsonText = jsonText[activeTab];
     const jsonError = activeMode === "json" ? getJsonError(activeJsonText) : "";
@@ -113,7 +97,6 @@ export default function AdminSettingsPage() {
             const data = normalizeSettings(await fetchAdminSettings(token));
             form.setFieldsValue(data);
             setChannels(data.private.channels);
-            setModelCosts(data.public.modelChannel.modelCosts);
             setKnownModels(collectKnownModels(data));
             setJsonText({
                 public: JSON.stringify(data.public, null, 2),
@@ -129,39 +112,6 @@ export default function AdminSettingsPage() {
     useEffect(() => {
         void loadSettings();
     }, [token]);
-
-    useEffect(() => {
-        if (!token) return;
-        const url = new URL(window.location.href);
-        const flow = url.searchParams.get("tokendance_oauth");
-        const storageKey = flow ? `tokendance:oauth-result:${flow}` : "";
-        const raw = storageKey ? sessionStorage.getItem(storageKey) : null;
-        if (!raw) return;
-
-        try {
-            const result = JSON.parse(raw) as {
-                key?: string;
-                draft?: Partial<AdminModelChannel>;
-                editingChannelIndex?: number | null;
-            };
-            if (!result.key || !result.draft) throw new Error("TokenDance 授权结果不完整");
-
-            const channel = normalizeChannel({ ...result.draft, apiKey: result.key });
-            setActiveTab("private");
-            setEditingChannelIndex(typeof result.editingChannelIndex === "number" ? result.editingChannelIndex : null);
-            channelForm.setFieldsValue(channel);
-            setWorkflowChannelDraft(channel);
-            setIsChannelDrawerOpen(true);
-            rememberModels(channel.models);
-            message.success("TokenDance 登录成功，API Key 已填入");
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "TokenDance 授权结果读取失败");
-        } finally {
-            sessionStorage.removeItem(storageKey);
-            url.searchParams.delete("tokendance_oauth");
-            window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-        }
-    }, [channelForm, message, token]);
 
     const changeTab = (nextTab: SettingsTabKey) => {
         setActiveTab(nextTab);
@@ -181,7 +131,6 @@ export default function AdminSettingsPage() {
             const merged = mergeChannelApiKeys(values.private.channels, saved);
             form.setFieldsValue(merged);
             setChannels(merged.private.channels);
-            setModelCosts(merged.public.modelChannel.modelCosts);
             rememberKnownModels(merged);
             setJsonText({
                 public: JSON.stringify(merged.public, null, 2),
@@ -211,7 +160,6 @@ export default function AdminSettingsPage() {
         }
         form.setFieldsValue({ [tab]: parsed } as Partial<AdminSettings>);
         if (tab === "private") setChannels((parsed as AdminSettings["private"]).channels);
-        if (tab === "public") setModelCosts((parsed as AdminSettings["public"]).modelChannel.modelCosts);
         rememberKnownModels({ ...normalizeSettings(form.getFieldsValue(true) as AdminSettings), [tab]: parsed });
         setEditorMode((current) => ({ ...current, [tab]: nextMode }));
     };
@@ -222,7 +170,6 @@ export default function AdminSettingsPage() {
             message.error("JSON 格式不正确");
             return;
         }
-        if (tab === "public") setModelCosts((parsed as AdminSettings["public"]).modelChannel.modelCosts);
         setJsonText((current) => ({
             ...current,
             [tab]: JSON.stringify(parsed, null, 2),
@@ -242,14 +189,6 @@ export default function AdminSettingsPage() {
         setIsChannelDrawerOpen(false);
         setEditingChannelIndex(null);
         channelForm.resetFields();
-    };
-
-    const loginTokenDance = () => {
-        void startTokenDanceOAuth({
-            target: "admin",
-            draft: channelForm.getFieldsValue(true) as unknown as Record<string, unknown>,
-            editingChannelIndex,
-        }).catch((error) => message.error(error instanceof Error ? error.message : "TokenDance 登录失败"));
     };
 
     const saveChannel = async () => {
@@ -360,7 +299,6 @@ export default function AdminSettingsPage() {
         clearMediaStorageConfigCache();
         const merged = mergeChannelApiKeys(nextChannels, saved);
         setChannels(merged.private.channels);
-        setModelCosts(merged.public.modelChannel.modelCosts);
         rememberKnownModels(merged);
         form.setFieldsValue(merged);
         setJsonText({
@@ -443,162 +381,11 @@ export default function AdminSettingsPage() {
                         activeMode === "visual" ? (
                             <Form form={form} layout="vertical" initialValues={emptySettings} requiredMark={false}>
                                 <Row gutter={16}>
-                                    <Col span={24}>
-                                        <Form.Item name={["public", "modelChannel", "availableModels"]} label="系统可用模型(请先在私有配置里配置渠道)" extra="可选项来自已启用渠道中选择的模型，最终开放哪些模型由这里勾选决定">
-                                            <Select mode="multiple" showSearch={{ optionFilterProp: ["label", "value"] }} placeholder="请选择系统可用模型" options={channelModels.map((item) => ({ label: publicModelLabel(item), value: item }))} />
-                                        </Form.Item>
-                                        <Form.Item name={["public", "modelChannel", "availableWorkflows"]} label="系统可用工作流" extra="先在私有渠道启用工作流，再在这里勾选对用户开放的工作流">
-                                            <Select mode="multiple" showSearch={{ optionFilterProp: ["label", "value"] }} placeholder="请选择系统可用工作流" options={channelWorkflows} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} md={6}>
-                                        <Form.Item name={["public", "modelChannel", "defaultModel"]} label="默认模型">
-                                            <Select showSearch={{ optionFilterProp: ["label", "value"] }} allowClear options={publicModels.map((item) => ({ label: publicModelLabel(item), value: item }))} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} md={6}>
-                                        <Form.Item name={["public", "modelChannel", "defaultImageModel"]} label="默认图片模型">
-                                            <Select showSearch={{ optionFilterProp: ["label", "value"] }} allowClear options={publicModels.map((item) => ({ label: publicModelLabel(item), value: item }))} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} md={6}>
-                                        <Form.Item name={["public", "modelChannel", "defaultVideoModel"]} label="默认视频模型">
-                                            <Select showSearch={{ optionFilterProp: ["label", "value"] }} allowClear options={publicModels.map((item) => ({ label: publicModelLabel(item), value: item }))} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} md={6}>
-                                        <Form.Item name={["public", "modelChannel", "defaultTextModel"]} label="默认文本模型">
-                                            <Select showSearch={{ optionFilterProp: ["label", "value"] }} allowClear options={publicModels.map((item) => ({ label: publicModelLabel(item), value: item }))} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col span={24}>
-                                        <Typography.Title level={5}>内置/系统提示词</Typography.Title>
-                                        <Row gutter={16}>
-                                            <Col xs={24} md={12}>
-                                                <Form.Item name={["public", "modelChannel", "systemPrompts", "image"]} label="生图系统提示词">
-                                                    <Input.TextArea rows={4} placeholder="会自动追加在生图提示词前，不在输入框中展示" />
-                                                </Form.Item>
-                                            </Col>
-                                            <Col xs={24} md={12}>
-                                                <Form.Item name={["public", "modelChannel", "systemPrompts", "video"]} label="视频系统提示词">
-                                                    <Input.TextArea rows={4} placeholder="会自动追加在视频提示词前" />
-                                                </Form.Item>
-                                            </Col>
-                                            <Col xs={24} md={12}>
-                                                <Form.Item name={["public", "modelChannel", "systemPrompts", "text"]} label="文本/问答系统提示词">
-                                                    <Input.TextArea rows={4} placeholder="用于画布问答、AI 文本等文本模型调用" />
-                                                </Form.Item>
-                                            </Col>
-                                            <Col xs={24} md={12}>
-                                                <Form.Item name={["public", "modelChannel", "systemPrompts", "workflow"]} label="工作流运行系统提示词">
-                                                    <Input.TextArea rows={4} placeholder="用于工作流运行时补充统一创作要求" />
-                                                </Form.Item>
-                                            </Col>
-                                            <Col xs={24}>
-                                                <Form.Item name={["public", "modelChannel", "systemPrompts", "workflowAgent"]} label="工作流创建 Agent 系统提示词">
-                                                    <Input.TextArea rows={6} placeholder="控制 AI 创建工作流的输出规范和默认参数" />
-                                                </Form.Item>
-                                            </Col>
-                                        </Row>
-                                        <Form.Item name={["public", "modelChannel", "systemPrompt"]} hidden>
-                                            <Input />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col span={24}>
-                                        <Form.Item name={["public", "modelChannel", "allowCustomChannel"]} label="是否允许用户自定义渠道" extra="开启后，前端可提供用户自定义 baseUrl 直连模式" valuePropName="checked">
-                                            <Switch />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col span={24}>
-                                        <Form.Item name={["public", "modelChannel", "allowUserRemoteChannel"]} label="是否允许普通用户使用云端渠道" extra="关闭后，普通用户只能使用本地直连；管理员仍可使用云端渠道" valuePropName="checked">
-                                            <Switch />
-                                        </Form.Item>
-                                    </Col>
+                                    {/* 第一期模型、工作流和系统提示词都不由画布后台下发（浏览器直连 openai.fit），公开配置只留注册开关。 */}
                                     <Col span={24}>
                                         <Form.Item name={["public", "auth", "allowRegister"]} label="是否允许用户注册" extra="关闭后隐藏注册入口，注册接口也会拒绝新用户创建" valuePropName="checked">
                                             <Switch />
                                         </Form.Item>
-                                    </Col>
-                                    <Col span={24}>
-                                        <Typography.Title level={5}>模型／工作流算力点</Typography.Title>
-                                        <Table
-                                            rowKey="key"
-                                            pagination={false}
-                                            size="small"
-                                            dataSource={[
-                                                ...orderedPublicModels.map((model) => {
-                                                    const video = publicVideoModels.has(model);
-                                                    return {
-                                                        key: model,
-                                                        model,
-                                                        label: publicModelLabel(model),
-                                                        credits: modelCostCredits(modelCosts, model),
-                                                        kind: "model",
-                                                        children: video ? [
-                                                            ...modelCosts.filter((cost) => cost.model === model && cost.resolution).map((cost, index) => ({ key: `${model}:${cost.resolution}:${index}`, model, label: "", resolution: cost.resolution || "", credits: cost.credits, kind: "resolution" })),
-                                                            { key: `${model}:add`, model, label: "", resolution: "", credits: 0, kind: "add" },
-                                                        ] : undefined,
-                                                    };
-                                                }),
-                                                ...channels.flatMap((channel) => isWorkflowProtocol(channel.protocol) ? (channel.workflows || []).filter((entry) => entry.enabled && publicWorkflows.includes(`workflow:system:${channel.id}:${entry.kind}:${entry.workflowId}`)).map((entry) => {
-                                                    const model = `workflow:system:${channel.id}:${entry.kind}:${entry.workflowId}`;
-                                                    return { key: model, model, label: `${channel.name} · ${entry.title || entry.workflowId}（工作流）`, credits: modelCostCredits(modelCosts, model), kind: "workflow" };
-                                                }) : []),
-                                            ]}
-                                            columns={[
-                                                {
-                                                    title: "模型 / 工作流",
-                                                    dataIndex: "model",
-                                                    render: (_, item) => item.kind === "resolution" ? (
-                                                        <div className="flex items-center gap-2">
-                                                            <span>└─</span>
-                                                            <Select
-                                                                className="!w-32"
-                                                                placeholder="选择分辨率"
-                                                                value={item.resolution || undefined}
-                                                                options={videoResolutionOptions.map((option) => ({ ...option, disabled: option.value !== item.resolution && modelCosts.some((cost) => cost.model === item.model && cost.resolution === option.value) }))}
-                                                                onChange={(resolution) => setModelCost(form, setModelCosts, item.model, item.credits, resolution, item.resolution)}
-                                                            />
-                                                            <Button danger type="text" icon={<DeleteOutlined />} onClick={() => removeModelCost(form, setModelCosts, item.model, item.resolution)} />
-                                                        </div>
-                                                    ) : item.kind === "add" ? (
-                                                        <div className="flex items-center gap-2">
-                                                            <span>└─</span>
-                                                            <Button type="link" className="!px-0" icon={<PlusOutlined />} disabled={videoResolutionOptions.every((option) => modelCosts.some((cost) => cost.model === item.model && cost.resolution === option.value))} onClick={() => addModelResolutionCost(form, setModelCosts, item.model)}>
-                                                                添加分辨率
-                                                            </Button>
-                                                        </div>
-                                                    ) : (
-                                                        <span title={item.label}>{item.label}</span>
-                                                    ),
-                                                },
-                                                {
-                                                    title: (
-                                                        <span className="grid leading-tight">
-                                                            <span>计费单价</span>
-                                                            <span className="text-xs font-normal text-[var(--ant-color-text-secondary)]">视频模型按秒，工作流按次</span>
-                                                        </span>
-                                                    ),
-                                                    dataIndex: "credits",
-                                                    width: 220,
-                                                    render: (_, item) => (
-                                                        item.kind === "add" ? null : (
-                                                            <Space.Compact className="!w-full">
-                                                                <InputNumber min={0} step={0.01} precision={2} className="!w-full" value={item.credits} onChange={(value) => setModelCost(form, setModelCosts, item.model, Number(value) || 0, item.resolution || "", item.resolution || "")} />
-                                                                <span className="flex h-8 items-center rounded-r-md border border-l-0 border-stone-200 bg-stone-50 px-3 text-sm text-stone-500 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300">
-                                                                    点
-                                                                </span>
-                                                            </Space.Compact>
-                                                        )
-                                                    ),
-                                                },
-                                            ]}
-                                            expandable={{
-                                                showExpandColumn: false,
-                                                expandedRowKeys: publicModels.filter((model) => publicVideoModels.has(model)),
-                                                indentSize: 16,
-                                            }}
-                                        />
                                     </Col>
                                 </Row>
                             </Form>
@@ -618,41 +405,6 @@ export default function AdminSettingsPage() {
                     ) : activeMode === "visual" ? (
                         <Form form={form} layout="vertical" initialValues={emptySettings} requiredMark={false}>
                             <Flex vertical gap={12}>
-                                <Card
-                                    size="small"
-                                    title={
-                                        <Space>
-                                            <img src="/icons/linuxdo.svg" alt="" width={18} height={18} />
-                                            Linux.do 登录
-                                        </Space>
-                                    }
-                                >
-                                    <Flex vertical gap={14}>
-                                        <Typography.Text type="secondary">
-                                            本项目接口回调地址是 /api/auth/linux-do/callback，请在 Linux.do 应用后台自行拼接站点前缀。
-                                            <Typography.Link href="https://connect.linux.do" target="_blank" rel="noreferrer">
-                                                点击此处管理你的 LinuxDO OAuth App
-                                            </Typography.Link>
-                                        </Typography.Text>
-                                        <Row gutter={16}>
-                                            <Col xs={24} md={6}>
-                                                <Form.Item name={["public", "auth", "linuxDo", "enabled"]} label="开启 Linux.do 登录" valuePropName="checked">
-                                                    <Switch />
-                                                </Form.Item>
-                                            </Col>
-                                            <Col xs={24} md={9}>
-                                                <Form.Item name={["private", "auth", "linuxDo", "clientId"]} label="Linux.do Client ID">
-                                                    <Input placeholder="输入 Linux.do OAuth App 的 ID" />
-                                                </Form.Item>
-                                            </Col>
-                                            <Col xs={24} md={9}>
-                                                <Form.Item name={["private", "auth", "linuxDo", "clientSecret"]} label="Linux.do Client Secret">
-                                                    <Input.Password placeholder="留空则沿用已保存的密钥" />
-                                                </Form.Item>
-                                            </Col>
-                                        </Row>
-                                    </Flex>
-                                </Card>
                                 <Card size="small" title="提示词定时同步">
                                     <Row gutter={16} align="middle">
                                         <Col xs={24} md={8}>
@@ -667,7 +419,7 @@ export default function AdminSettingsPage() {
                                         </Col>
                                     </Row>
                                 </Card>
-                                <Card size="small" title="AI 调用日志">
+                                <Card size="small" title="AI 调用日志" style={{ display: "none" }}>
                                     <Row gutter={16}>
                                         <Col xs={24} md={6}>
                                             <Form.Item name={["private", "aiLog", "localDirectReportEnabled"]} label="本地直连日志上报" valuePropName="checked" extra="关闭后本地直连不上报；云端渠道仍默认记录。">
@@ -881,53 +633,6 @@ export default function AdminSettingsPage() {
                                         )}
                                     </Form.List>
                                 </Card>
-                                <Button type="primary" icon={<PlusOutlined />} onClick={() => openChannelDrawer(null)}>
-                                    新增渠道
-                                </Button>
-                                <Table
-                                    rowKey="_rowKey"
-                                    pagination={false}
-                                    dataSource={channelTableData}
-                                    columns={[
-                                        { title: "名称", dataIndex: "name", render: (value) => value || "未命名渠道" },
-                                        { title: "协议", dataIndex: "protocol", width: 96, render: (value) => <Tag>{value || "openai"}</Tag> },
-                                        { title: "状态", dataIndex: "enabled", width: 120, render: (value, item) => isWorkflowProtocol(item.protocol) ? <Tag>{`启用 ${(item.workflows || []).filter((entry) => entry.enabled).length} / ${(item.workflows || []).length} 条`}</Tag> : <Tag color={value ? "success" : "default"}>{value ? "已启用" : "已停用"}</Tag> },
-                                        {
-                                            title: "模型",
-                                            dataIndex: "models",
-                                            render: (value: string[], item) => (
-                                                <Typography.Text ellipsis style={{ maxWidth: 360 }}>
-                                                    {isWorkflowProtocol(item.protocol) ? (item.workflows || []).map((entry) => entry.title || entry.workflowId).join("、") || "未配置工作流" : modelSummary(value || [])}
-                                                </Typography.Text>
-                                            ),
-                                        },
-                                        { title: "权重", dataIndex: "weight", width: 88 },
-                                        { title: "超时", dataIndex: "timeout", width: 96, render: (value) => `${value || 600}s` },
-                                        {
-                                            title: "操作",
-                                            key: "actions",
-                                            width: 220,
-                                            render: (_, item) => (
-                                                <Space size={4}>
-                                                    {!isWorkflowProtocol(item.protocol) ? <Button size="small" onClick={() => openTestDialog(item._index)}>测试</Button> : null}
-                                                    <Button size="small" onClick={() => openChannelDrawer(item._index)}>
-                                                        编辑
-                                                    </Button>
-                                                    <Button
-                                                        danger
-                                                        size="small"
-                                                        icon={<DeleteOutlined />}
-                                                        onClick={() => {
-                                                            const nextChannels = [...channels];
-                                                            nextChannels.splice(item._index, 1);
-                                                            void persistChannels(nextChannels);
-                                                        }}
-                                                    />
-                                                </Space>
-                                            ),
-                                        },
-                                    ]}
-                                />
                             </Flex>
                         </Form>
                     ) : (
@@ -969,7 +674,7 @@ export default function AdminSettingsPage() {
                             <Col span={12}>
                                 <Form.Item name="protocol" label="协议">
                                     <Select
-                                        options={modelChannelProtocolOptions}
+                                        options={fitProtocolOptions}
                                         onChange={(protocol: AdminModelChannel["protocol"]) => {
                                             channelForm.setFieldValue("baseUrl", modelChannelDefaultBaseUrls[protocol]);
                                             setWorkflowChannelDraft((current) => ({ ...current, protocol, baseUrl: modelChannelDefaultBaseUrls[protocol] }));
@@ -999,19 +704,11 @@ export default function AdminSettingsPage() {
                                     label={
                                         <span className="relative inline-flex items-center">
                                             接口地址
-                                            {channelProtocol === "tokendance" || channelApiKeyUrl ? (
-                                                <span className="absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap">
-                                                    <Button
-                                                        type="primary"
-                                                        size="small"
-                                                        href={channelProtocol === "tokendance" ? undefined : channelApiKeyUrl}
-                                                        target={channelProtocol === "tokendance" ? undefined : "_blank"}
-                                                        onClick={channelProtocol === "tokendance" ? () => void loginTokenDance() : undefined}
-                                                    >
-                                                        {channelProtocol === "tokendance" ? "登录" : "获取 API Key"}
-                                                    </Button>
-                                                </span>
-                                            ) : null}
+                                            <span className="absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap">
+                                                <Button type="primary" size="small" href={FIT_KEYS_URL} target="_blank" rel="noreferrer">
+                                                    管理旧模型服务令牌
+                                                </Button>
+                                            </span>
                                         </span>
                                     }
                                     rules={[{ required: true, message: "请输入接口地址" }]}
@@ -1276,31 +973,6 @@ function normalizeChannel(item: Partial<AdminModelChannel> = {}): AdminModelChan
         enabled: item.enabled !== false,
         remark: item.remark || "",
     };
-}
-
-function modelCostCredits(items: AdminSettings["public"]["modelChannel"]["modelCosts"], model: string, resolution = "") {
-    return items.find((item) => item.model === model && (item.resolution || "") === resolution)?.credits || 0;
-}
-
-function setModelCost(form: any, setModelCosts: (items: AdminModelCost[]) => void, model: string, credits: number, resolution = "", previousResolution = resolution) {
-    const current = (form.getFieldValue(["public", "modelChannel", "modelCosts"]) || []) as AdminSettings["public"]["modelChannel"]["modelCosts"];
-    const next = current.filter((item) => item.model !== model || (item.resolution || "") !== previousResolution);
-    next.push({ model, resolution, credits: Math.max(0, credits) });
-    form.setFieldValue(["public", "modelChannel", "modelCosts"], next);
-    setModelCosts(next);
-}
-
-function addModelResolutionCost(form: any, setModelCosts: (items: AdminModelCost[]) => void, model: string) {
-    const current = (form.getFieldValue(["public", "modelChannel", "modelCosts"]) || []) as AdminModelCost[];
-    const resolution = videoResolutionOptions.find((option) => !current.some((item) => item.model === model && item.resolution === option.value))?.value;
-    if (resolution) setModelCost(form, setModelCosts, model, 0, resolution);
-}
-
-function removeModelCost(form: any, setModelCosts: (items: AdminModelCost[]) => void, model: string, resolution: string) {
-    const current = (form.getFieldValue(["public", "modelChannel", "modelCosts"]) || []) as AdminModelCost[];
-    const next = current.filter((item) => item.model !== model || item.resolution !== resolution);
-    form.setFieldValue(["public", "modelChannel", "modelCosts"], next);
-    setModelCosts(next);
 }
 
 function mergeChannelApiKeys(currentChannels: AdminModelChannel[], saved: AdminSettings): AdminSettings {

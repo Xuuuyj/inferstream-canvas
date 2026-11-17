@@ -1,7 +1,7 @@
 "use client";
 
 import { App, Button, Checkbox, Empty, Image, Input, Modal, Select, Space, Switch, Tag, Typography } from "antd";
-import { AlertCircle, ArrowDown, ArrowUp, Bot, CheckCircle2, Copy, Download, Edit3, FilePlus2, Globe2, Layers3, LoaderCircle, LockKeyhole, Play, Plus, Sparkles, Trash2, WandSparkles } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, CheckCircle2, Copy, Download, Edit3, FilePlus2, Globe2, Layers3, LoaderCircle, LockKeyhole, Play, Plus, Sparkles, Trash2, WandSparkles } from "lucide-react";
 import localforage from "localforage";
 import { nanoid } from "nanoid";
 import { saveAs } from "file-saver";
@@ -16,7 +16,7 @@ import { createCanvasImageTask, requestEdit, requestGeneration, requestImageQues
 import { saveImageGenerationLogs } from "@/services/api/generation-logs";
 import { deleteUserWorkflow, draftUserWorkflow, fetchUserConfig, fetchUserWorkflows, saveUserWorkflow, type CreativeWorkflowRecord } from "@/services/api/user-config";
 import { deleteStoredImages, imageToDataUrl, uploadImage } from "@/services/image-storage";
-import { channelProtocolForConfig, defaultConfig, localChannelForActiveModel, normalizeLocalChannels, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { channelProtocolForConfig, defaultConfig, localChannelForActiveModel, normalizeLocalChannels, useConfigStore, useEffectiveConfig, usesCanvasBackend, type AiConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import type { ReferenceImage } from "@/types/image";
@@ -547,7 +547,6 @@ export function CreativeWorkflowWorkspace({
                 openConfigDialog(true);
                 return;
             }
-            const localChannel = effectiveConfig.channelMode === "local" ? localChannelForActiveModel(textConfig) : null;
             const referenceDataUrls = await Promise.all(agentReferences.map((image) => imageToDataUrl(image)));
             const result = await draftUserWorkflow<Partial<CreativeWorkflow>>(token, {
                 prompt: text,
@@ -556,8 +555,6 @@ export function CreativeWorkflowWorkspace({
                 channelId: textChannelId,
                 channelMode: effectiveConfig.channelMode,
                 protocol: channelProtocolForConfig(textConfig),
-                baseUrl: localChannel?.baseUrl,
-                apiKey: localChannel?.apiKey,
                 references: referenceDataUrls.filter(Boolean),
             });
             setAgentDraft(normalizeAgentDraft(result.draft, effectiveConfig, agentScope));
@@ -716,7 +713,7 @@ export function CreativeWorkflowWorkspace({
             ...value,
         ]);
         message.success(seriesTitle ? `${seriesTitle} 已开始生成` : "工作流任务已开始");
-        if (runConfig.channelMode === "remote" || (runConfig.channelMode === "local" && token)) {
+        if (usesCanvasBackend()) {
             return createWorkflowImageTasks({ taskId, workflow, prompt: promptSnapshot, inputSnapshot, references: referencesSnapshot, runConfig, taskConfig, model, count, startedAt, seriesDraftId, seriesTitle, seriesIndex });
         }
         return executeWorkflowTask({ taskId, workflow, prompt: promptSnapshot, inputSnapshot, references: referencesSnapshot, runConfig, taskConfig, model, count, startedAt, performanceStartedAt, seriesDraftId, seriesTitle, seriesIndex });
@@ -956,9 +953,6 @@ export function CreativeWorkflowWorkspace({
                             onChange={setWorkflowCategory}
                         />
                         <Input.Search allowClear placeholder="搜索名称、分类、描述" className="w-72 max-w-full" value={query} onChange={(event) => setQuery(event.target.value)} />
-                        <Button icon={<Bot className="size-4" />} onClick={() => setAgentOpen(true)}>
-                            AI 创建
-                        </Button>
                         <Button icon={<Layers3 className="size-4" />} onClick={() => setEditingWorkflow(createBlankWorkflow(effectiveConfig, "multi_image_series"))}>
                             新建多图
                         </Button>

@@ -2,6 +2,7 @@ import { apiDelete, apiGet, apiPost } from "@/services/api/request";
 import type { AiConfig } from "@/stores/use-config-store";
 import type { WorkflowChannelData } from "@/lib/workflow-channel";
 import type { ChannelTranslation } from "@/lib/channel-parameter-translation";
+import { stripSecretsForSync } from "@/lib/fit-config";
 import { toProviderPayload, type UserS3StorageProvider, type UserStorageProvider, type UserWebDAVStorageProvider } from "@/services/image-storage";
 
 export type UserConfigPayload = {
@@ -31,8 +32,8 @@ export async function fetchUserConfig(token: string) {
     return apiGet<UserConfigPayload>("/api/v1/user-config", undefined, token);
 }
 
-export async function syncUserModelConfig(token: string, config: AiConfig, workflowChannels?: WorkflowChannelData[], channelTranslations?: ChannelTranslation[]) {
-    return apiPost<UserConfigPayload>("/api/v1/user-config/model", { config: { ...config, ...(workflowChannels === undefined ? {} : { workflowChannels }), ...(channelTranslations === undefined ? {} : { channelTranslations }) } }, token);
+export async function syncUserModelConfig(token: string, config: AiConfig, workflowChannels?: WorkflowChannelData[]) {
+    return apiPost<UserConfigPayload>("/api/v1/user-config/model", { config: stripSecretsForSync({ ...config, ...(workflowChannels === undefined ? {} : { workflowChannels }) }) }, token);
 }
 
 export type UserStorageProviders = {
@@ -110,8 +111,6 @@ export async function draftUserWorkflow<T>(
         channelId?: string;
         channelMode?: "remote" | "local";
         protocol?: string;
-        baseUrl?: string;
-        apiKey?: string;
         references?: string[];
     },
 ) {

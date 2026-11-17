@@ -1,3 +1,5 @@
+import { fitProfileFor } from "@/services/api/fit/catalog";
+
 export function modelKey(modelName: string) {
     return modelName.trim().toLowerCase().replace(/[._/]+/g, "-");
 }
@@ -35,7 +37,10 @@ export function videoDurationOptionsForModel(modelName: string) {
     return null;
 }
 
+/** openai.fit 的模型按 fit 卡片的 profile 判断（下面按名字的规则不再用）；profile 要先 loadFitStudio 才有。 */
 export function supportsVideoFrameReferences(modelName: string, protocol = "") {
+    const fit = fitProfileFor(modelName);
+    if (fit) return fit.roles.some((role) => role !== "reference");
     if (protocol === "autodl") return modelName === "minimax_h3_b99_002" || modelName === "minimax_h3_lightx2v";
     const model = modelKey(modelName);
     return (
@@ -75,7 +80,9 @@ export function supportsVideoFrameReferences(modelName: string, protocol = "") {
     );
 }
 
+/** openai.fit 的模型由卡片自己决定出不出声（fit 生成台不开放声音开关，画布的「生成音频」开关不发出去），一律 false。 */
 export function supportsVideoAudioGeneration(modelName: string) {
+    if (fitProfileFor(modelName)) return false;
     const model = modelKey(modelName);
     if (model.includes("motion-control")) return false;
     return (

@@ -2,7 +2,7 @@ import { readFileAsDataUrl } from "@/lib/image-utils";
 import { audioMimeType } from "@/lib/audio-generation";
 import { modelChannelAttributionHeaders } from "@/lib/model-channel";
 import { translationPrograms, translationVariableNames, type TranslationVariables } from "@/lib/channel-parameter-translation";
-import { channelIdForActiveModel, localChannelForActiveModel, type AiConfig } from "@/stores/use-config-store";
+import { channelIdForActiveModel, localChannelForActiveModel, usesCanvasBackend, type AiConfig } from "@/stores/use-config-store";
 import { useChannelTranslationStore } from "@/stores/use-channel-translation-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { uploadMediaFile } from "@/services/file-storage";
@@ -36,7 +36,7 @@ export function normalizeTranslationAspectRatio(value: string) {
 }
 
 export async function findParameterTranslation(config: AiConfig): Promise<MatchedTranslation | null> {
-    const { user, token } = useUserStore.getState();
+    const { user } = useUserStore.getState();
     const channelId = config.channelMode === "remote" ? channelIdForActiveModel(config) : localChannelForActiveModel(config)?.id || "";
     if (!channelId) return null;
     if (config.channelMode === "remote") {
@@ -45,7 +45,7 @@ export async function findParameterTranslation(config: AiConfig): Promise<Matche
     }
     const source = (await useChannelTranslationStore.getState().load(user?.id || "guest"))[channelId];
     if (!source?.trim() || !(await translationPrograms(source))[config.model]) return null;
-    return { channelId, source, timeout: Number(config.timeout) || 600, accountProxy: Boolean(token) };
+    return { channelId, source, timeout: Number(config.timeout) || 600, accountProxy: usesCanvasBackend() };
 }
 
 export function translationHeaders(config: AiConfig, match: MatchedTranslation): Record<string, string> {
@@ -124,7 +124,7 @@ export class BrowserParameterTranslation {
         const { method, request: plan, headers: common } = await this.evaluate<{ method: string; request: RequestPlan; headers: Record<string, unknown> }>({ action: "request", query });
         if (!plan || typeof plan !== "object" || !plan.url?.trim()) throw new Error("自定配置缺少接口地址 url");
         const channel = localChannelForActiveModel(this.config);
-        const key = channel?.apiKey || this.config.apiKey;
+        const key = channel?.apiKey || "";
         const replace = (text: string) => text.replaceAll("{taskId}", taskId).replaceAll("{channelKey}", key);
         const text = (value: unknown) => replace(typeof value === "string" ? value : JSON.stringify(value));
         const target = plan.url.replaceAll("{taskId}", encodeURIComponent(taskId)).replaceAll("{channelKey}", encodeURIComponent(key));

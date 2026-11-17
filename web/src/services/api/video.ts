@@ -12,15 +12,18 @@ import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalize
 import { isKIEGrokVideoModel, isKIEKlingV3Config, kieKlingOmniVariant } from "./protocols/kling-models";
 import { autoDLBaseUrl, getAutoDLCapabilities } from "@/lib/autodl";
 import { fetchAutoDLWorkflow } from "./autodl";
+import { fitAuthHeaders } from "./fit/transport";
+import { createFitVideoTask, pollFitVideoTask, recoverFitVideo, waitFitVideo } from "./fit/video";
+import { isFitConfig } from "@/lib/fit-config";
 import { isAgnesVideoV25Model, isCogVideoX3Model, isWan3VideoModel, modelKey, normalizeCogVideoX3Duration, supportsVideoAudioGeneration, videoDurationOptionsForModel } from "@/lib/video-model-capabilities";
 import { resolveMediaUrl, uploadMediaFile, uploadRemoteMediaToServer } from "@/services/file-storage";
 import { autoSyncToCloud, imageToDataUrl, resolveImageUrl } from "@/services/image-storage";
-import { buildApiUrl, channelIdForActiveModel, channelProtocolForConfig, directAIProviderForConfig, localChannelForActiveModel, type AiConfig, type VideoElementReference } from "@/stores/use-config-store";
+import { buildApiUrl, channelIdForActiveModel, channelProtocolForConfig, directAIProviderForConfig, localChannelForActiveModel, usesCanvasBackend, type AiConfig, type VideoElementReference } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
-export type VideoResponse = { parameter_translation?: boolean; translationSnapshot?: LocalVideoTranslationSnapshot; id: string; task_id?: string; video_id?: string; source_id?: string; sourceId?: string; channelId?: string; userChannelId?: string; channelName?: string; workflowRef?: string; channel_id?: string; user_channel_id?: string; channel_name?: string; status?: string; video_url?: string; url?: string; storageKey?: string; progress?: number; error?: { message?: string }; size?: string; seconds?: string; model?: string; created_at?: string | number; createdAt?: string | number; started_at?: string | number; startedAt?: string | number; request_body?: string };
+export type VideoResponse = { parameter_translation?: boolean; translationSnapshot?: LocalVideoTranslationSnapshot; id: string; task_id?: string; video_id?: string; source_id?: string; sourceId?: string; channelId?: string; userChannelId?: string; channelName?: string; workflowRef?: string; fitKeyRef?: string; channel_id?: string; user_channel_id?: string; channel_name?: string; status?: string; video_url?: string; url?: string; storageKey?: string; progress?: number; error?: { message?: string }; size?: string; seconds?: string; model?: string; created_at?: string | number; createdAt?: string | number; started_at?: string | number; startedAt?: string | number; request_body?: string };
 type ApiVideoEnvelope = { code: number; data?: VideoResponse | VideoResponse[] | null; msg?: string; message?: string };
 type ApiVideoResponse = VideoResponse | ApiVideoEnvelope;
 export type VideoGenerationResult = { id: string; url: string; durationMs: number; width: number; height: number; bytes: number; mimeType: string; task: VideoResponse };
@@ -40,9 +43,8 @@ export class VideoRequestError extends Error {
     }
 }
 
-function usesAccountProxy(config: AiConfig) {
-    const token = useUserStore.getState().token;
-    return config.channelMode === "remote" || (config.channelMode === "local" && Boolean(token));
+function usesAccountProxy(_config: AiConfig) {
+    return usesCanvasBackend();
 }
 
 function aiApiUrl(config: AiConfig, path: string) {
@@ -83,14 +85,10 @@ function agnesBaseUrl(baseUrl: string) {
     return normalized.toLowerCase().endsWith("/v1") ? normalized.slice(0, -3).replace(/\/+$/, "") : normalized;
 }
 
-function aiHeaders(config: AiConfig) {
-    const token = useUserStore.getState().token;
-    if (config.channelMode === "remote" && !token) throw new Error("请先登录后再使用云端渠道");
-    if (config.channelMode === "remote") return { Authorization: `Bearer ${token}`, ...(channelIdForActiveModel(config) ? { "X-Model-Channel-ID": channelIdForActiveModel(config) } : {}) };
-    if (token) return { Authorization: `Bearer ${token}`, ...(channelIdForActiveModel(config) ? { "X-User-Model-Channel-ID": channelIdForActiveModel(config) } : {}) };
+function aiHeaders(config: AiConfig, target: string) {
     if (isGeminiConfig(config)) return geminiDirectHeaders(config);
     return {
-        Authorization: `Bearer ${localChannelForActiveModel(config)?.apiKey || config.apiKey}`,
+        ...fitAuthHeaders(target, localChannelForActiveModel(config)?.apiKey || ""),
         ...modelChannelAttributionHeaders(channelProtocolForConfig(config)),
     };
 }
@@ -116,6 +114,7 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
 }
 
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] | VideoReferenceInput = [], onProgress?: VideoProgressHandler, options?: string | VideoTaskCreateOptions): Promise<CreatedVideoGenerationTask> {
+    if (isFitConfig(config)) return createFitVideoTask(config, prompt, normalizeVideoReferenceInput(references), normalizeVideoTaskCreateOptions(options).signal, onProgress);
     const model = config.model || config.videoModel;
     const systemPrompt = (config.systemPrompts.video || config.systemPrompt).trim();
     const translation = await findParameterTranslation({...config,model});
@@ -125,7 +124,6 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     try {
         const createOptions = normalizeVideoTaskCreateOptions(options);
         const accountProxy = usesAccountProxy(config);
-        const headers = { ...aiHeaders(config), ...(accountProxy && createOptions.clientTaskId ? { "X-Client-Video-Task-ID": createOptions.clientTaskId } : {}), ...(accountProxy && createOptions.source ? { "X-Video-Task-Source": createOptions.source } : {}), ...(accountProxy && createOptions.sourceId ? { "X-Video-Task-Source-ID": createOptions.sourceId } : {}) };
         const directProvider = !accountProxy ? directAIProviderForConfig(config) : null;
         const channel = localChannelForActiveModel(config);
         const createUrl = !accountProxy && isGeminiConfig(config, model)
@@ -133,6 +131,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
             : !accountProxy && isMiniMaxH3Config(config, model)
                 ? miniMaxApiUrl(config, "/v2/video_generation")
                 : aiApiUrl(config, !accountProxy && (isGrok2APIVideoConfig(config, model) || isCogVideoX3Model(model)) ? "/videos/generations" : "/videos");
+        const headers = { ...aiHeaders(config, createUrl), ...(accountProxy && createOptions.clientTaskId ? { "X-Client-Video-Task-ID": createOptions.clientTaskId } : {}), ...(accountProxy && createOptions.source ? { "X-Video-Task-Source": createOptions.source } : {}), ...(accountProxy && createOptions.sourceId ? { "X-Video-Task-Source-ID": createOptions.sourceId } : {}) };
         const requestBody = !accountProxy && isGeminiConfig(config, model) ? withoutVideoModel(body) : body;
         createOptions.signal?.throwIfAborted();
         if (accountProxy) createOptions.onServerTask?.();
@@ -146,7 +145,6 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
         return { task, pollId: videoPollId(model, task), startedAt, requestBody: body };
     } catch (error) {
         const { message, detail } = readAxiosError(error, "视频生成失败");
-        void writeVideoAICallLog(config, model, "/videos", "POST", startedAt, axios.isAxiosError(error) ? error.response?.status || 0 : 0, stringifyLogPayload(summarizeVideoRequestBody(body)), stringifyLogPayload(detail), message);
         throw new VideoRequestError(message, detail);
     }
 }
@@ -246,6 +244,7 @@ function normalizeVideoTaskCreateOptions(options?: string | VideoTaskCreateOptio
 }
 
 export async function pollCreatedVideoGenerationTask(config: AiConfig, task: VideoResponse, { startedAt = Date.now(), requestBody, initialDelayMs = 0, onProgress, onPoll }: { startedAt?: number; requestBody?: unknown; initialDelayMs?: number; onProgress?: VideoProgressHandler; onPoll?: (task: VideoResponse) => void } = {}) {
+    if (isFitConfig(config)) return waitFitVideo(config, task, { startedAt, initialDelayMs, onProgress, onPoll });
     const model = config.model || config.videoModel;
     const pollId = videoPollId(model, task);
     if (!pollId) throw new VideoRequestError("视频接口没有返回任务 ID", task);
@@ -254,7 +253,10 @@ export async function pollCreatedVideoGenerationTask(config: AiConfig, task: Vid
     let currentTask = task;
     const pollOnce = task.translationSnapshot ? async () => { currentTask = await pollLocalTranslatedVideo(config,currentTask); return currentTask; } : task.parameter_translation && isCompletedVideoStatus(task.status) ? async () => task : directProvider && directPoll
         ? () => directPoll(config, directProvider, pollId)
-        : async () => unwrapVideoResponseForConfig(config, model, (await axios.get<ApiVideoResponse>(aiVideoPollUrl(config, model, pollId), { headers: aiHeaders(config), params: usesAccountProxy(config) ? { model } : undefined })).data);
+        : async () => {
+            const pollUrl = aiVideoPollUrl(config, model, pollId);
+            return unwrapVideoResponseForConfig(config, model, (await axios.get<ApiVideoResponse>(pollUrl, { headers: aiHeaders(config, pollUrl), params: usesAccountProxy(config) ? { model } : undefined })).data);
+        };
     let completed: VideoResponse | null = null;
     try {
         if (initialDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, initialDelayMs));
@@ -273,25 +275,30 @@ export async function pollCreatedVideoGenerationTask(config: AiConfig, task: Vid
         const videoUrl = completed?.video_url || completed?.url || "";
         if (!videoUrl) throw new VideoRequestError("视频生成完成但没有返回视频地址", completed);
         const result = buildVideoGenerationResult(completed, videoUrl, Date.now() - startedAt);
-        void writeVideoAICallLog(config, model, "/videos", "POST", startedAt, 200, stringifyLogPayload(requestBody ? summarizeVideoRequestBody(requestBody) : { taskId: pollId }), stringifyLogPayload({ task: completed, video: result }), "");
         refreshRemoteUser(config);
         return result;
     } catch (error) {
         const { message, detail } = readAxiosError(error, "视频生成失败");
-        void writeVideoAICallLog(config, model, "/videos", "POST", startedAt, axios.isAxiosError(error) ? error.response?.status || 0 : 0, stringifyLogPayload(requestBody ? summarizeVideoRequestBody(requestBody) : { taskId: pollId }), stringifyLogPayload(detail), message);
         throw new VideoRequestError(message, detail);
     }
 }
 
+/** 成片本地丢了时重新取回（只支持 openai.fit 的任务；其他渠道返回 null）。 */
+export async function recoverGeneratedVideo(config: AiConfig, task: VideoResponse) {
+    return isFitConfig(config) ? recoverFitVideo(config, task) : null;
+}
+
 export async function pollVideoGenerationTaskStatus(config: AiConfig, task: VideoResponse, signal?: AbortSignal) {
+    if (isFitConfig(config)) return pollFitVideoTask(config, task, signal);
     if (task.translationSnapshot) return syncGeneratedVideo(await pollLocalTranslatedVideo(config,task,signal),config,true);
     const model = config.model || config.videoModel;
     const pollId = videoPollId(model, task);
     if (!pollId) throw new VideoRequestError("视频接口没有返回任务 ID", task);
     const directProvider = !usesAccountProxy(config) ? directAIProviderForConfig(config) : null;
+    const pollUrl = aiVideoPollUrl(config, model, pollId);
     const result: VideoResponse = directProvider && !task.parameter_translation
         ? await (await import("@/services/api/direct-ai")).pollDirectVideoTask(config, directProvider, pollId, signal)
-        : unwrapVideoResponseForConfig(config, model, (await axios.get<ApiVideoResponse>(aiVideoPollUrl(config, model, pollId), { headers: aiHeaders(config), params: usesAccountProxy(config) ? { model } : undefined, signal })).data);
+        : unwrapVideoResponseForConfig(config, model, (await axios.get<ApiVideoResponse>(pollUrl, { headers: aiHeaders(config, pollUrl), params: usesAccountProxy(config) ? { model } : undefined, signal })).data);
     return syncGeneratedVideo(result.parameter_translation ? result : await cacheProtectedGeminiVideo(config, model, await cacheProtectedVideo(config, model, result)), config, true);
 }
 
@@ -317,7 +324,7 @@ async function syncGeneratedVideo(task: VideoResponse, config: AiConfig, content
 
 export async function listVideoGenerationTasks(config: AiConfig) {
     if (!usesAccountProxy(config)) return [];
-    const payload = (await axios.get<ApiVideoEnvelope>("/api/v1/video-tasks", { headers: aiHeaders(config) })).data;
+    const payload = (await axios.get<ApiVideoEnvelope>("/api/v1/video-tasks", { headers: aiHeaders(config, "/api/v1/video-tasks") })).data;
     if (payload.code !== 0) throw new VideoRequestError(payload.msg || payload.message || "读取视频任务失败", payload);
     return Array.isArray(payload.data) ? payload.data.map(normalizeVideoResponse) : [];
 }
@@ -326,7 +333,7 @@ export async function deleteVideoGenerationTask(config: AiConfig, task?: VideoRe
     if (!usesAccountProxy(config) || !task) return;
     const id = task.id || task.task_id || task.video_id;
     if (!id) return;
-    const payload = (await axios.delete<ApiVideoEnvelope>(`/api/v1/video-tasks/${encodeURIComponent(id)}`, { headers: aiHeaders(config) })).data;
+    const payload = (await axios.delete<ApiVideoEnvelope>(`/api/v1/video-tasks/${encodeURIComponent(id)}`, { headers: aiHeaders(config, "/api/v1/video-tasks") })).data;
     if (payload.code !== 0) throw new VideoRequestError(payload.msg || payload.message || "删除视频任务失败", payload);
 }
 
@@ -341,7 +348,8 @@ export async function cacheProtectedVideo(config: AiConfig, model: string, task:
     const needsContentURL = /\/videos\/[^/?]+\/content(?:[?#]|$)/.test(contentRequest ? new URL(url).pathname : url);
     if (!isCompletedVideoStatus(task.status) || task.storageKey || (!needsTaskContent && !needsContentURL)) return task;
     const taskId = task.task_id || task.id || task.video_id || "";
-    const response = contentResponse ?? await fetch(contentRequest ? url : `${aiApiUrl(config, `/videos/${encodeURIComponent(taskId)}/content`)}?model=${encodeURIComponent(model)}`, contentRequest || { headers: aiHeaders(config) });
+    const contentUrl = contentRequest ? url : `${aiApiUrl(config, `/videos/${encodeURIComponent(taskId)}/content`)}?model=${encodeURIComponent(model)}`;
+    const response = contentResponse ?? await fetch(contentUrl, contentRequest || { headers: aiHeaders(config, contentUrl) });
     if (!response.ok) throw new VideoRequestError(`视频内容下载失败：${response.status}`, task);
     const blob = await response.blob();
     const translatedContent = task.parameter_translation && !url;
@@ -941,9 +949,10 @@ async function cacheProtectedGeminiVideo(config: AiConfig, model: string, task: 
     const url = task.video_url || task.url || "";
     if (!isGeminiConfig(config, model) || !isCompletedVideoStatus(task.status) || task.storageKey || !url) return task;
     const localTaskId = task.id || task.task_id || "";
+    const proxyUrl = `${aiApiUrl(config, `/videos/${encodeURIComponent(localTaskId)}/content`)}?model=${encodeURIComponent(model)}`;
     const response = await fetch(
-        usesAccountProxy(config) ? `${aiApiUrl(config, `/videos/${encodeURIComponent(localTaskId)}/content`)}?model=${encodeURIComponent(model)}` : url,
-        { headers: usesAccountProxy(config) ? aiHeaders(config) : geminiDirectHeaders(config) },
+        usesAccountProxy(config) ? proxyUrl : url,
+        { headers: usesAccountProxy(config) ? aiHeaders(config, proxyUrl) : geminiDirectHeaders(config) },
     );
     if (!response.ok) throw new VideoRequestError(`视频内容下载失败：${response.status}`, task);
     const media = await uploadMediaFile(await response.blob(), "generated-video", `video-content:${videoSyncKey(config, task)}`);
@@ -969,46 +978,6 @@ function readAxiosError(error: unknown, fallback: string) {
     return { message: error instanceof Error ? error.message : fallback, detail: error instanceof Error ? error.stack || error.message : error };
 }
 
-async function writeVideoAICallLog(config: AiConfig, model: string, endpoint: string, method: "GET" | "POST", startedAt: number, status: number, requestBody: string, responseBody: string, error: string) {
-    if (config.channelMode !== "local" || usesAccountProxy(config)) return;
-    const token = useUserStore.getState().token;
-    if (!token) return;
-    const channel = localChannelForActiveModel(config);
-    await fetch("/api/v1/ai-logs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-            endpoint,
-            method,
-            model,
-            channelId: channel?.id || config.activeChannelId || "",
-            channelName: channel?.name || "本地直连",
-            status,
-            durationMs: Date.now() - startedAt,
-            credits: 0,
-            requestBody,
-            responseBody,
-            error,
-        }),
-    }).catch(() => { });
-}
-
-function summarizeVideoRequestBody(value: unknown) {
-    if (value instanceof FormData) {
-        const fields: Record<string, string[]> = {};
-        const files: Array<{ field: string; name: string; size: number; type: string }> = [];
-        value.forEach((item, key) => {
-            if (item instanceof File) {
-                files.push({ field: key, name: item.name, size: item.size, type: item.type });
-                return;
-            }
-            fields[key] = [...(fields[key] || []), String(item)];
-        });
-        return { fields, files };
-    }
-    return value;
-}
-
 function formatErrorDetail(detail: unknown) {
     if (detail == null) return "";
     if (typeof detail === "string") return detail;
@@ -1017,38 +986,6 @@ function formatErrorDetail(detail: unknown) {
     } catch {
         return String(detail);
     }
-}
-
-function stringifyLogPayload(value: unknown) {
-    if (typeof value === "string") return value;
-    try {
-        const cloned = JSON.parse(JSON.stringify(value)) as unknown;
-        redactLogMedia(cloned);
-        return JSON.stringify(cloned, null, 2);
-    } catch {
-        return String(value || "");
-    }
-}
-
-function redactLogMedia(value: unknown) {
-    if (!value || typeof value !== "object") return;
-    if (Array.isArray(value)) {
-        value.forEach(redactLogMedia);
-        return;
-    }
-    const record = value as Record<string, unknown>;
-    for (const key of Object.keys(record)) {
-        const item = record[key];
-        if (typeof item === "string" && (item.startsWith("data:image/") || item.startsWith("data:video/") || item.startsWith("data:audio/") || item.includes("data:image/") || item.includes("data:video/") || item.includes("data:audio/") || item.length > 2048 && looksLikeBase64(item))) {
-            record[key] = `[redacted media/string len=${item.length}]`;
-            continue;
-        }
-        redactLogMedia(item);
-    }
-}
-
-function looksLikeBase64(value: string) {
-    return /^[A-Za-z0-9+/=]+$/.test(value.slice(0, 200));
 }
 
 function normalizeVideoResponse(value: unknown): VideoResponse {
@@ -1150,10 +1087,10 @@ function firstTaskId(value: unknown, depth = 0): string {
 export type { VideoGenerationResult as VideoGenerationTask };
 
 export async function pollVideoGenerationTask(taskId: string): Promise<VideoResponse> {
-    const config = { channelMode: "remote" as const, model: "", videoModel: "" } as AiConfig;
     const token = useUserStore.getState().token;
     if (!token) throw new Error("请先登录");
-    const response = await axios.get<ApiVideoEnvelope>(aiApiUrl(config, `/videos/${encodeURIComponent(taskId)}?model=`), { headers: { Authorization: `Bearer ${token}` } });
+    // 画布服务器上的任务：登录令牌只发同源 /api，不能经 aiApiUrl 落到 openai.fit。
+    const response = await axios.get<ApiVideoEnvelope>(`/api/v1/videos/${encodeURIComponent(taskId)}?model=`, { headers: { Authorization: `Bearer ${token}` } });
     return unwrapVideoResponse(response.data);
 }
 

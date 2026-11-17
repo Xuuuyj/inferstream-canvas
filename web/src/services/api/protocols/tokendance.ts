@@ -1,4 +1,3 @@
-import { tokenDanceAppUrl } from "@/lib/model-channel";
 import { collectHTTPURLs, firstString, normalizeDirectStatus, readDirectError, readNumber, readPath, readString, uniqueHTTPURLs } from "./shared";
 import type { DirectProtocolAdapter } from "./types";
 
@@ -115,7 +114,7 @@ export function tokenDanceRecoveryMessage(action: string | null) {
 }
 
 export const tokenDanceDirectProtocol: DirectProtocolAdapter = {
-    headers: { "X-App-URL": tokenDanceAppUrl },
+    headers: {},
     pollPath: (pollId) => {
         const { protocol, taskId: id } = splitTaskID(pollId);
         return pollPath(protocol, id);

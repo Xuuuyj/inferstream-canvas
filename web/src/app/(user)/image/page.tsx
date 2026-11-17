@@ -1,5 +1,7 @@
 "use client";
 
+import { inferStreamImageEnabled, inferStreamImageModel, missingInferStreamImageToken } from "@/lib/inferstream-image-access";
+
 import {
     AlertCircle,
     BookOpen,
@@ -32,6 +34,10 @@ import localforage from "localforage";
 import { saveAs } from "file-saver";
 
 import { ImageSettingsPanel, imageFormatLabel, imageQualityLabel, imageSizeLabel, imageSizeOptions } from "@/components/image-settings-panel";
+import { useFitPanel } from "@/components/fit-video-settings-panel";
+import { isFitConfig } from "@/lib/fit-config";
+import type { FitPanelKey } from "@/lib/fit-panel";
+import { fitQuickControls } from "@/lib/fit-quick-controls";
 import { ModelPicker } from "@/components/model-picker";
 import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
 import { AssetPickerModal, type InsertAssetPayload } from "@/app/(user)/canvas/components/asset-picker-modal";
@@ -44,7 +50,7 @@ import {
     type WorkflowExternalTaskStart,
     type WorkflowExternalTaskSuccess,
 } from "@/components/workflows/creative-workflow-workspace";
-import { normalizeLocalChannels, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { normalizeLocalChannels, useConfigStore, useEffectiveConfig, usesCanvasBackend, type AiConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { nanoid } from "nanoid";
 import { formatBytes, formatDuration, getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
@@ -52,6 +58,7 @@ import { ImageRequestError, batchCanvasImageTaskStatus, createCanvasImageTask, d
 import { comfyOutputStorageKey, getWorkflowTask, isRetryableWorkflowError, submitWorkflowTask } from "@/services/api/workflow-generation";
 import { parseWorkflowRef, type WorkflowRef } from "@/lib/workflow-channel";
 import { deleteImageGenerationLogs, fetchImageGenerationLogs, saveImageGenerationLogs } from "@/services/api/generation-logs";
+import { saveRetryDelayMs } from "@/services/api/request";
 import { deleteImagePreviews, deleteStoredImages, deleteUnusedImagePreviews, ensureImagePreview, getImagePreviewRevision, imageToDataUrl, previewUrlFor, resolveImageUrl, subscribeImagePreviews, uploadImage, uploadRemoteImageToServer } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -171,6 +178,7 @@ export default function ImagePage() {
     const workflowButtonRef = useRef<HTMLButtonElement>(null);
     const workflowButtonDragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
     const accountHistorySyncEnabledRef = useRef(false);
+    const historySyncRef = useRef<{ token: string; logs: Map<string, GenerationLog>; busy: boolean; backoffMs: number } | null>(null);
     const saveLogChainRef = useRef<Promise<void>>(Promise.resolve());
     const pollingLogIdsRef = useRef(new Set<string>());
     const pollContextRef = useRef<WorkflowPollContext | null>(null);
@@ -182,7 +190,7 @@ export default function ImagePage() {
     const generationCount = Math.max(1, Math.min(10, Number(config.count) || 1));
     const pendingCount = results.filter((item) => item.status === "pending").length;
     const pendingLogCount = logs.filter((log) => log.status === "生成中" && log.task && !log.images.length).length;
-    const usesBackendImageTasks = (value: AiConfig) => value.channelMode === "remote" || (value.channelMode === "local" && Boolean(token));
+    const usesBackendImageTasks = (_value: AiConfig) => usesCanvasBackend();
     const imageTaskConfig = () => effectiveConfigRef.current;
 
     const restorePendingLogResults = (sourceLogs: GenerationLog[]) => {
@@ -783,6 +791,7 @@ export default function ImagePage() {
         if (!token) return;
         const ids = Array.from(new Set(items.flatMap((item) => [item.id, item.task?.id].filter((id): id is string => Boolean(id)))));
         if (!ids.length) return;
+        ids.forEach((id) => historySyncRef.current?.logs.delete(id));
         await deleteImageGenerationLogs(token, ids).catch(() => undefined);
     };
 
@@ -898,11 +907,37 @@ export default function ImagePage() {
         }
     };
 
+    // 账号历史同步：同一时间只发一批，其余先攒着（同一条只留最新版本）。429、断网、5xx 时等一会儿再发，不关掉同步；
+    // 其他错误（例如请求体过大）才关掉本页的账号同步，本地历史不受影响。
     const persistImageHistory = async (nextLogs: GenerationLog[], _nextCategories: GenerationCategory[]) => {
         if (!token || !accountHistorySyncEnabledRef.current) return;
-        await saveImageGenerationLogs(token, nextLogs.map(serializeLog)).catch(() => {
-            accountHistorySyncEnabledRef.current = false;
-        });
+        if (historySyncRef.current?.token !== token) historySyncRef.current = { token, logs: new Map(), busy: false, backoffMs: 0 };
+        const queue = historySyncRef.current;
+        nextLogs.forEach((log) => queue.logs.set(log.id, log));
+        if (queue.busy) return;
+        queue.busy = true;
+        void (async () => {
+            while (queue.logs.size && historySyncRef.current === queue && accountHistorySyncEnabledRef.current && useUserStore.getState().token === token) {
+                const batch = Array.from(queue.logs.values());
+                queue.logs.clear();
+                try {
+                    await saveImageGenerationLogs(token, batch.map(serializeLog));
+                    queue.backoffMs = 0;
+                } catch (error) {
+                    queue.backoffMs = Math.min(60_000, Math.max(5_000, queue.backoffMs * 2));
+                    const delay = saveRetryDelayMs(error, queue.backoffMs);
+                    if (delay === null) {
+                        accountHistorySyncEnabledRef.current = false;
+                        break;
+                    }
+                    batch.forEach((log) => {
+                        if (!queue.logs.has(log.id)) queue.logs.set(log.id, log);
+                    });
+                    await new Promise((resolve) => window.setTimeout(resolve, delay));
+                }
+            }
+            queue.busy = false;
+        })();
     };
 
     const syncBackendImageTasks = async (baseLogs?: GenerationLog[]) => {
@@ -1096,8 +1131,12 @@ export default function ImagePage() {
         const requestChannelId = resolveImageChannelId(baseConfig, requestModel, configOverride?.imageChannelId, configOverride?.activeChannelId, baseConfig.imageChannelId, baseConfig.activeChannelId);
         const requestConfig = { ...baseConfig, model: requestModel, imageModel: requestModel, activeChannelId: requestChannelId, imageChannelId: requestChannelId, count: "1" };
         if (workflowRef && !token) { message.warning("工作流生成请先登录"); return null; }
+        if (!workflowRef && inferStreamImageEnabled() && requestModel !== inferStreamImageModel) {
+            message.warning(`请先选择 ${inferStreamImageModel} 模型。`);
+            return null;
+        }
         if (!workflowRef && !isAiConfigReady(requestConfig, requestModel)) {
-            message.warning("请先完成配置");
+            message.warning(inferStreamImageEnabled() ? missingInferStreamImageToken : "请先完成配置");
             openConfigDialog(true);
             return null;
         }
@@ -1478,6 +1517,10 @@ function WorkbenchPanel({
     uploadingCount: number;
 }) {
     const [bottomSettingsCollapsed, setBottomSettingsCollapsed] = useState(true);
+    // openai.fit 下底部的尺寸/质量换成卡片自己的选项（和参数面板同一份）；卡片还没读到时先不显示。接口模式（images/responses/chat）对 fit 不起作用，侧边和底部都不显示
+    const fitMode = !config.imageWorkflowRef && isFitConfig(config);
+    const fit = useFitPanel(fitMode ? model : undefined, config);
+    const fitQuick = fitMode ? (fit.profile && fit.values ? fitQuickControls(fit.profile, fit.values, config.fitAdvanced) : []) : null;
 
     if (layout === "bottom") {
         return (
@@ -1530,24 +1573,32 @@ function WorkbenchPanel({
                                     fullWidth
                                 />
                             </label>
-                            <label className="grid gap-1 text-xs text-stone-500 dark:text-stone-400">
-                                接口模式
-                                <div className="flex h-11 items-center rounded-xl border border-stone-200 bg-background px-2.5 dark:border-stone-800">
-                                    <Segmented
-                                        size="small"
-                                        className="canvas-config-mode !rounded-md !p-0.5 w-full"
-                                        value={config.apiMode}
-                                        onChange={(value) => updateConfig("apiMode", value as "images" | "responses" | "chat")}
-                                        options={[
-                                            { value: "images", label: "images" },
-                                            { value: "responses", label: "responses" },
-                                            { value: "chat", label: "chat" },
-                                        ]}
-                                    />
-                                </div>
-                            </label>
-                            <QuickSelect label="尺寸" value={config.size || "auto"} options={imageSizeOptions} onChange={(value) => updateConfig("size", value)} />
-                            <QuickSelect label="质量" value={config.quality || "auto"} options={quickQualityOptions} onChange={(value) => updateConfig("quality", value)} />
+                            {!isFitConfig(config) ? (
+                                <label className="grid gap-1 text-xs text-stone-500 dark:text-stone-400">
+                                    接口模式
+                                    <div className="flex h-11 items-center rounded-xl border border-stone-200 bg-background px-2.5 dark:border-stone-800">
+                                        <Segmented
+                                            size="small"
+                                            className="canvas-config-mode !rounded-md !p-0.5 w-full"
+                                            value={config.apiMode}
+                                            onChange={(value) => updateConfig("apiMode", value as "images" | "responses" | "chat")}
+                                            options={[
+                                                { value: "images", label: "images" },
+                                                { value: "responses", label: "responses" },
+                                                { value: "chat", label: "chat" },
+                                            ]}
+                                        />
+                                    </div>
+                                </label>
+                            ) : null}
+                            {fitQuick ? (
+                                fitQuick.map((control) => <QuickSelect key={control.label} label={control.label} value={control.value} options={control.options} onChange={(value) => updateConfig(control.key, control.write(value) as AiConfig[FitPanelKey])} />)
+                            ) : (
+                                <>
+                                    <QuickSelect label="尺寸" value={config.size || "auto"} options={imageSizeOptions} onChange={(value) => updateConfig("size", value)} />
+                                    <QuickSelect label="质量" value={config.quality || "auto"} options={quickQualityOptions} onChange={(value) => updateConfig("quality", value)} />
+                                </>
+                            )}
                             <QuickNumber label="数量" value={config.count || "1"} min={1} max={10} onChange={(value) => updateConfig("count", value)} />
                             <ReferenceQuickActions references={references} onUploadReferences={onUploadReferences} />
                             <Button type="primary" className="h-11 min-w-28 rounded-xl hidden lg:inline-flex" icon={<Sparkles className="size-4" />} disabled={!canGenerate} onClick={onGenerate}>
@@ -2000,20 +2051,22 @@ function GenerationSettings({ config, model, updateConfig, openConfigDialog }: {
                 </div>
                 <div className="border-t border-stone-200 p-3 dark:border-stone-800 space-y-2">
                     <ModelPicker config={config} value={model} capability="image" channelId={config.imageChannelId} workflowRef={config.imageWorkflowRef} onWorkflowChange={(value) => updateConfig("imageWorkflowRef", value)} onChange={(value, channelId) => { updateConfig("imageModel", value); if (channelId) updateConfig("imageChannelId", channelId); }} fullWidth onMissingConfig={() => openConfigDialog(false)} />
-                    <div className="flex items-center justify-between gap-3 pt-1">
-                        <div className="text-xs opacity-75">接口模式</div>
-                        <Segmented
-                            size="small"
-                            className="canvas-config-mode !rounded-md !p-0.5"
-                            value={config.apiMode}
-                            onChange={(value) => updateConfig("apiMode", value as "images" | "responses" | "chat")}
-                            options={[
-                                { value: "images", label: "images" },
-                                { value: "responses", label: "responses" },
-                                { value: "chat", label: "chat" },
-                            ]}
-                        />
-                    </div>
+                    {!isFitConfig(config) ? (
+                        <div className="flex items-center justify-between gap-3 pt-1">
+                            <div className="text-xs opacity-75">接口模式</div>
+                            <Segmented
+                                size="small"
+                                className="canvas-config-mode !rounded-md !p-0.5"
+                                value={config.apiMode}
+                                onChange={(value) => updateConfig("apiMode", value as "images" | "responses" | "chat")}
+                                options={[
+                                    { value: "images", label: "images" },
+                                    { value: "responses", label: "responses" },
+                                    { value: "chat", label: "chat" },
+                                ]}
+                            />
+                        </div>
+                    ) : null}
                 </div>
             </section>
             <ImageSettingsPanel config={config} onConfigChange={(key, value) => updateConfig(key, value)} theme={theme} showTitle={false} className="space-y-3" maxCount={10} />

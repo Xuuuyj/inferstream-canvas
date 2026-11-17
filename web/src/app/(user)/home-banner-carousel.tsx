@@ -27,7 +27,7 @@ export const HomeBannerCarousel = memo(function HomeBannerCarousel({ banners }: 
     const [activePosition, setActivePosition] = useState(0);
     const activeIndex =
         ((activePosition % banners.length) + banners.length) % banners.length;
-    const [activeVideoUrl, setActiveVideoUrl] = useState("");
+    const [activeVideo, setActiveVideo] = useState<HomeBanner | null>(null);
     const carouselRef = useRef<HTMLDivElement>(null);
     const pointerStartRef = useRef<number | null>(null);
     const draggedRef = useRef(false);
@@ -123,7 +123,7 @@ export const HomeBannerCarousel = memo(function HomeBannerCarousel({ banners }: 
             return;
         }
 
-        if (banner.videoUrl) setActiveVideoUrl(banner.videoUrl);
+        if (banner.videoUrl) setActiveVideo(banner);
         else if (banner.linkUrl) {
             window.open(banner.linkUrl, "_blank", "noopener,noreferrer");
         }
@@ -211,8 +211,15 @@ export const HomeBannerCarousel = memo(function HomeBannerCarousel({ banners }: 
                     <button key={banner.imageUrl} type="button" className={cn("h-1.5 rounded-full transition-all", index === activeIndex ? "w-6 bg-stone-700 dark:bg-stone-200" : "w-2 bg-stone-300 dark:bg-stone-700")} onClick={() => selectBanner(index)} aria-label={"切换到第 " + (index + 1) + " 张"} />
                 ))}
             </div>
-            <Modal open={Boolean(activeVideoUrl)} footer={null} centered width={960} destroyOnHidden onCancel={() => setActiveVideoUrl("")}>
-                {activeVideoUrl ? <video key={activeVideoUrl} src={activeVideoUrl} controls autoPlay playsInline className="max-h-[78vh] w-full bg-black object-contain" /> : null}
+            <Modal
+                open={Boolean(activeVideo)}
+                footer={null}
+                centered
+                width={960}
+                destroyOnHidden
+                onCancel={() => setActiveVideo(null)}
+            >
+                {activeVideo?.videoUrl ? <video key={activeVideo.videoUrl} src={activeVideo.videoUrl} controls autoPlay playsInline className="max-h-[78vh] w-full bg-black object-contain" /> : null}
             </Modal>
         </>
     );

@@ -36,7 +36,7 @@ export function geminiOperationUrl(baseUrl: string, operation: string) {
 export function geminiDirectHeaders(config: AiConfig) {
     return {
         "Content-Type": "application/json",
-        "x-goog-api-key": localChannelForActiveModel(config)?.apiKey || config.apiKey,
+        "x-goog-api-key": localChannelForActiveModel(config)?.apiKey || "",
     };
 }
 

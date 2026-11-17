@@ -1,5 +1,4 @@
 "use client";
-import axios from "axios";
 
 import { AlertCircle, ArrowLeft, ArrowRight, BookOpen, CheckSquare, ChevronDown, ChevronUp, ClipboardPaste, CloudUpload, Copy, Download, FolderPlus, History, LoaderCircle, Music2, PanelBottom, PanelLeft, Plus, RotateCcw, SlidersHorizontal, Sparkles, Square, Trash2, Upload, VideoIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -11,6 +10,7 @@ import { saveAs } from "file-saver";
 import { AssetPickerModal, type InsertAssetPayload } from "@/app/(user)/canvas/components/asset-picker-modal";
 import { ModelPicker } from "@/components/model-picker";
 import { useAutoDLWorkflow } from "@/hooks/use-autodl-workflow";
+import { useFitProfile } from "@/hooks/use-fit-profile";
 import { getAutoDLCapabilities, isAutoDLConfig, normalizeAutoDLDuration } from "@/lib/autodl";
 import { KlingV26WorkbenchPanel } from "@/app/(user)/video/components/kling-v26-workbench-panel";
 import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
@@ -18,16 +18,23 @@ import { VideoSettingsPanel, isKIEKlingV3Config, kieKlingOmniVariant, normalizeV
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { isMiniMaxH3Config } from "@/lib/minimax-video";
-import { ARK_SEEDANCE_REFERENCE_LIMITS, boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
+import { ARK_SEEDANCE_REFERENCE_LIMITS, boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { COGVIDEOX3_DURATIONS, isAgnesVideoV25Model, isCogVideoX3Model, modelKey, normalizeCogVideoX3Duration, supportsVideoAudioGeneration, supportsVideoFrameReferences } from "@/lib/video-model-capabilities";
 import { deleteStoredMedia, downloadRemoteMedia, resolveMediaUrl, uploadMediaFile, uploadRemoteMediaToServer } from "@/services/file-storage";
 import { deleteStoredImages, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { deleteVideoGenerationLogs, fetchVideoGenerationLogs, saveVideoGenerationLogs } from "@/services/api/generation-logs";
 import { createVideoGenerationTask, deleteVideoGenerationTask, listVideoGenerationTasks, pollVideoGenerationTaskStatus, VIDEO_POLL_INTERVAL_MS, VideoRequestError, type VideoResponse } from "@/services/api/video";
 import { stopCanvasTask } from "@/services/api/canvas-tasks";
-import { comfyOutputStorageKey, getWorkflowTask, isRetryableWorkflowError, submitWorkflowTask, workflowMediaSource } from "@/services/api/workflow-generation";
+import { fitProfileFor } from "@/services/api/fit/catalog";
+import { FIT_VIDEO_STOP_NOTICE } from "@/services/api/fit/video";
+import { useFitPanel } from "@/components/fit-video-settings-panel";
+import { isFitConfig } from "@/lib/fit-config";
+import { fitQuickControls } from "@/lib/fit-quick-controls";
+import { fitAllowsEmptyPrompt, type FitPanelKey } from "@/lib/fit-panel";
+import { emptyReferenceHint, fitCardsToWait, fitVideoConfig, legacyAudioReferences, legacyVideoReferenceError, pickReferences, referenceCountNotice, submitOnce, videoPollFailure, videoTaskSize, workbenchReferenceLimits } from "@/app/(user)/video/fit-workbench";
+import { comfyOutputStorageKey, getWorkflowTask, submitWorkflowTask, workflowMediaSource } from "@/services/api/workflow-generation";
 import { useAssetStore } from "@/stores/use-asset-store";
-import { channelProtocolForConfig, normalizeLocalChannels, useConfigStore, useEffectiveConfig, type AiConfig, type VideoElementItem, type VideoElementReference } from "@/stores/use-config-store";
+import { channelProtocolForConfig, normalizeLocalChannels, useConfigStore, useEffectiveConfig, usesCanvasBackend, type AiConfig, type VideoElementItem, type VideoElementReference } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { useUserStore } from "@/stores/use-user-store";
 import type { ReferenceImage } from "@/types/image";
@@ -156,18 +163,22 @@ export default function VideoPage() {
     const [taskCount, setTaskCount] = useState(1);
     const [syncingVideoIds, setSyncingVideoIds] = useState<string[]>([]);
     const pollingLogIdsRef = useRef(new Set<string>());
+    const pollFailuresRef = useRef(new Map<string, number>());
     const videoTaskRunsRef = useRef(new Map<string, VideoTaskRun>());
     const historySyncRef = useRef<Promise<GenerationLog[] | undefined>>(Promise.resolve(undefined));
     const logsRef = useRef<GenerationLog[]>([]);
     const effectiveConfigRef = useRef(videoConfig);
     const workflowSubmissionRef = useRef(0);
+    const submitLocksRef = useRef(new Set<string>());
 
     const model = effectiveConfig.videoModel || effectiveConfig.model;
     const referenceLimits = !videoConfig.videoWorkflowRef && channelProtocolForConfig({ ...videoConfig, model, videoModel: model }) === "ark" && (modelKey(model).includes("seedance-2-5") || modelKey(model).includes("seedance2-5")) ? ARK_SEEDANCE_REFERENCE_LIMITS : SEEDANCE_REFERENCE_LIMITS;
     const autodl = !videoConfig.videoWorkflowRef && isAutoDLConfig(videoConfig, model);
     const { data: autodlWorkflow, error: autodlError } = useAutoDLWorkflow(videoConfig, model);
     const autodlCapabilities = getAutoDLCapabilities(autodlWorkflow);
-    const canGenerate = Boolean(prompt.trim() || videoConfig.videoWorkflowRef) || (autodl && autodlCapabilities?.promptRequired === false);
+    // openai.fit 下添加素材的个数和大小按卡片（workbenchReferenceLimits），只给素材、不写提示词按 fit 生成台的规则（fitAllowsEmptyPrompt）
+    const fitProfile = useFitProfile(!videoConfig.videoWorkflowRef && isFitConfig(videoConfig) ? model : undefined);
+    const canGenerate = Boolean(prompt.trim() || videoConfig.videoWorkflowRef) || (autodl && autodlCapabilities?.promptRequired === false) || fitAllowsEmptyPrompt(videoConfig, fitProfile, { references, firstFrame, lastFrame, videoReferences, audioReferences });
     const pendingCount = results.filter((item) => item.status === "pending").length;
     const klingWorkbench = videoConfig.videoWorkflowRef ? null : resolveKlingWorkbenchConfig(videoConfig, model);
     const klingWorkbenchVariant = klingWorkbench?.variant || "";
@@ -175,11 +186,12 @@ export default function VideoPage() {
     const isKlingWorkbench = Boolean(klingWorkbench);
     const klingOmni = videoConfig.videoWorkflowRef ? "" : kieKlingOmniVariant(videoConfig, model);
     const klingAcceptsVideoReferences = klingOmni === "reference-to-video" || klingOmni === "transformation";
-    const referenceImageLimit = klingOmni === "text-to-video" ? 0 : klingOmni === "image-to-video" ? 2 : klingOmni === "transformation" ? 4 : isKlingWorkbench && klingOmni !== "reference-to-video" ? 2 : referenceLimits.images;
-    const videoReferenceLimit = klingAcceptsVideoReferences ? 1 : referenceLimits.videos;
+    const referenceAddLimits = workbenchReferenceLimits(videoConfig, fitProfile, { ...referenceLimits, images: klingOmni === "text-to-video" ? 0 : klingOmni === "image-to-video" ? 2 : klingOmni === "transformation" ? 4 : isKlingWorkbench && klingOmni !== "reference-to-video" ? 2 : referenceLimits.images, videos: klingAcceptsVideoReferences ? 1 : referenceLimits.videos });
+    const referenceImageLimit = referenceAddLimits.images;
+    const videoReferenceLimit = referenceAddLimits.videos;
     const hasPendingLogs = logs.some((log) => (log.status === "生成中" || (log.status === "停止中" && !log.error)) && log.task && !log.video);
     const hasPendingTasks = hasPendingLogs || pendingCount > 0 || results.some((item) => item.status === "stopping" && !item.error);
-    const usesBackendVideoTasks = (value: AiConfig) => value.channelMode === "remote" || (value.channelMode === "local" && Boolean(token));
+    const usesBackendVideoTasks = (_value: AiConfig) => usesCanvasBackend();
 
     useEffect(() => {
         if (autodl && autodlError) message.error(autodlError.message);
@@ -355,12 +367,15 @@ export default function VideoPage() {
         const selectedFiles = Array.from(files || []);
         const unsupported = isKlingWorkbench ? selectedFiles.filter((file) => (!file.type.startsWith("image/") || referenceImageLimit === 0) && (!file.type.startsWith("video/") || !klingAcceptsVideoReferences)) : selectedFiles.filter((file) => !file.type.startsWith("image/") && !file.type.startsWith("video/") && !isSupportedAudioFile(file));
         if (unsupported.length) message.warning(isKlingWorkbench ? `当前 Kling 模型仅支持${klingAcceptsVideoReferences ? "参考图和参考视频" : "参考图"}` : "已忽略不支持的参考素材，请使用图片、mp4/mov 视频或 mp3/wav 音频");
-        const imageFiles = selectedFiles.filter((file) => file.type.startsWith("image/") && file.size <= SEEDANCE_REFERENCE_LIMITS.imageMaxBytes).slice(0, Math.max(0, referenceImageLimit - references.length));
-        const videoFiles = isKlingWorkbench && !klingAcceptsVideoReferences ? [] : selectedFiles.filter((file) => file.type.startsWith("video/") && file.size <= referenceLimits.videoMaxBytes).slice(0, Math.max(0, videoReferenceLimit - videoReferences.length));
-        const audioFiles = isKlingWorkbench ? [] : selectedFiles.filter((file) => isSupportedAudioFile(file) && file.size <= SEEDANCE_REFERENCE_LIMITS.audioMaxBytes).slice(0, referenceLimits.audios - audioReferences.length);
-        if (selectedFiles.some((file) => file.type.startsWith("image/") && file.size > SEEDANCE_REFERENCE_LIMITS.imageMaxBytes)) message.warning("已忽略超过 30MB 的参考图");
-        if (selectedFiles.some((file) => file.type.startsWith("video/") && file.size > referenceLimits.videoMaxBytes)) message.warning(`已忽略超过 ${referenceLimits.videoMaxBytes / 1024 / 1024}MB 的参考视频`);
-        if (selectedFiles.some((file) => isSupportedAudioFile(file) && file.size > SEEDANCE_REFERENCE_LIMITS.audioMaxBytes)) message.warning("已忽略超过 15MB 的参考音频");
+        // 按上限挑（openai.fit 按卡片，见 workbenchReferenceLimits）：超过大小的忽略，超出个数的截掉，都给提示
+        const supported = selectedFiles.filter((file) => !unsupported.includes(file));
+        const imagePick = pickReferences(supported.filter((file) => file.type.startsWith("image/")), references.length, referenceImageLimit, referenceAddLimits.imageMaxBytes, "参考图", "张");
+        const videoPick = pickReferences(supported.filter((file) => file.type.startsWith("video/")), videoReferences.length, videoReferenceLimit, referenceAddLimits.videoMaxBytes, "参考视频", "个");
+        const audioPick = pickReferences(supported.filter((file) => isSupportedAudioFile(file)), audioReferences.length, referenceAddLimits.audios, referenceAddLimits.audioMaxBytes, "参考音频", "个");
+        [...imagePick.notices, ...videoPick.notices, ...audioPick.notices].forEach((notice) => message.warning(notice));
+        const imageFiles = imagePick.picked;
+        const videoFiles = videoPick.picked;
+        const audioFiles = audioPick.picked;
         const hideLoading = imageFiles.length ? message.loading("正在上传参考图...", 0) : null;
         try {
             const nextReferences = await Promise.all(
@@ -379,10 +394,10 @@ export default function VideoPage() {
                 const audio = await uploadMediaFile(file, "audio-reference");
                 return { id: nanoid(), name: file.name, type: audio.mimeType, url: audio.url, storageKey: audio.storageKey, durationMs: audio.durationMs };
             }));
-            const nextAudioReferences = autodl ? uploadedAudioReferences : filterAudioReferencesByDuration(audioReferences, uploadedAudioReferences, referenceLimits, message.warning);
+            const nextAudioReferences = autodl ? uploadedAudioReferences : legacyAudioReferences(videoConfig, audioReferences, uploadedAudioReferences, referenceLimits, message.warning);
             setReferences((value) => [...value, ...nextReferences].slice(0, referenceImageLimit));
             setVideoReferences((value) => [...value, ...nextVideoReferences].slice(0, videoReferenceLimit));
-            setAudioReferences((value) => [...value, ...nextAudioReferences].slice(0, referenceLimits.audios));
+            setAudioReferences((value) => [...value, ...nextAudioReferences].slice(0, referenceAddLimits.audios));
             if (nextReferences.length) message.success(`已上传 ${nextReferences.length} 张参考图`);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "参考素材上传失败");
@@ -397,8 +412,8 @@ export default function VideoPage() {
             message.error("请选择首尾帧图片");
             return;
         }
-        if (file.size > SEEDANCE_REFERENCE_LIMITS.imageMaxBytes) {
-            message.warning("已忽略超过 30MB 的首尾帧图片");
+        if (file.size > referenceAddLimits.imageMaxBytes) {
+            message.warning(`已忽略超过 ${referenceAddLimits.imageMaxBytes / 1024 / 1024}MB 的首尾帧图片`);
             return;
         }
         const hideLoading = message.loading(slot === "first" ? "正在上传首帧..." : "正在上传尾帧...", 0);
@@ -442,7 +457,7 @@ export default function VideoPage() {
 
     const addReferencesFromClipboard = async () => {
         if (!referenceImageLimit) {
-            message.warning("当前 Kling 模型不支持参考图");
+            message.warning(isKlingWorkbench ? "当前 Kling 模型不支持参考图" : "当前模型不收参考图");
             return;
         }
         try {
@@ -452,8 +467,11 @@ export default function VideoPage() {
                 message.error("剪切板里没有可读取的图片");
                 return;
             }
+            // 剪贴板图片只在 openai.fit 下按大小筛（同上传），别的配置（含工作流）照 8c92915 不查大小
+            const { picked, notices } = pickReferences(blobs, references.length, referenceImageLimit, !videoConfig.videoWorkflowRef && isFitConfig(videoConfig) ? referenceAddLimits.imageMaxBytes : Infinity, "参考图", "张");
+            notices.forEach((notice) => message.warning(notice));
             const nextReferences = await Promise.all(
-                blobs.slice(0, Math.max(0, referenceImageLimit - references.length)).map(async (blob, index) => {
+                picked.map(async (blob, index) => {
                     const image = await uploadImage(blob);
                     return { id: nanoid(), name: `clipboard-${index + 1}.png`, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
                 }),
@@ -474,8 +492,8 @@ export default function VideoPage() {
                 message.error("剪切板里没有可读取的图片");
                 return;
             }
-            if (blob.size > SEEDANCE_REFERENCE_LIMITS.imageMaxBytes) {
-                message.warning("已忽略超过 30MB 的首尾帧图片");
+            if (blob.size > referenceAddLimits.imageMaxBytes) {
+                message.warning(`已忽略超过 ${referenceAddLimits.imageMaxBytes / 1024 / 1024}MB 的首尾帧图片`);
                 return;
             }
             const hideLoading = message.loading(slot === "first" ? "正在读取首帧..." : "正在读取尾帧...", 0);
@@ -500,8 +518,8 @@ export default function VideoPage() {
                 message.error("剪切板里没有可读取的视频");
                 return;
             }
-            const usable = blobs.filter((blob) => blob.size <= referenceLimits.videoMaxBytes).slice(0, Math.max(0, videoReferenceLimit - videoReferences.length));
-            if (blobs.some((blob) => blob.size > referenceLimits.videoMaxBytes)) message.warning(`已忽略超过 ${referenceLimits.videoMaxBytes / 1024 / 1024}MB 的参考视频`);
+            const { picked: usable, notices } = pickReferences(blobs, videoReferences.length, videoReferenceLimit, referenceAddLimits.videoMaxBytes, "参考视频", "个");
+            notices.forEach((notice) => message.warning(notice));
             const nextVideoReferences = await Promise.all(
                 usable.map(async (blob, index) => {
                     const video = await uploadMediaFile(blob, "video-reference");
@@ -523,14 +541,14 @@ export default function VideoPage() {
                 message.error("剪切板里没有可读取的音频");
                 return;
             }
-            const usable = blobs.filter((blob) => blob.size <= SEEDANCE_REFERENCE_LIMITS.audioMaxBytes).slice(0, referenceLimits.audios - audioReferences.length);
-            if (blobs.some((blob) => blob.size > SEEDANCE_REFERENCE_LIMITS.audioMaxBytes)) message.warning("已忽略超过 15MB 的参考音频");
+            const { picked: usable, notices } = pickReferences(blobs, audioReferences.length, referenceAddLimits.audios, referenceAddLimits.audioMaxBytes, "参考音频", "个");
+            notices.forEach((notice) => message.warning(notice));
             const uploadedAudioReferences = await Promise.all(usable.map(async (blob, index) => {
                 const audio = await uploadMediaFile(blob, "audio-reference");
                 return { id: nanoid(), name: `clipboard-audio-${index + 1}.mp3`, type: audio.mimeType, url: audio.url, storageKey: audio.storageKey, durationMs: audio.durationMs };
             }));
-            const nextAudioReferences = autodl ? uploadedAudioReferences : filterAudioReferencesByDuration(audioReferences, uploadedAudioReferences, referenceLimits, message.warning);
-            setAudioReferences((value) => [...value, ...nextAudioReferences].slice(0, referenceLimits.audios));
+            const nextAudioReferences = autodl ? uploadedAudioReferences : legacyAudioReferences(videoConfig, audioReferences, uploadedAudioReferences, referenceLimits, message.warning);
+            setAudioReferences((value) => [...value, ...nextAudioReferences].slice(0, referenceAddLimits.audios));
             message.success(`已读取 ${nextAudioReferences.length} 个参考音频`);
         } catch {
             message.error("剪切板里没有可读取的音频");
@@ -581,11 +599,14 @@ export default function VideoPage() {
         }
     };
 
+    // openai.fit 的卡片还没读到时先等（首尾帧按卡片判断，见 fitCardsToWait），等的时候用 submitOnce 上锁，双击、连按回车只提交一次
     const generate = async () => {
-        const snapshot = buildRequestSnapshot();
-        if (!snapshot) return;
-        setPrompt("");
-        await submitGenerationSnapshot(snapshot);
+        const snapshot = await submitOnce(submitLocksRef.current, "generate", fitCardsToWait(videoConfig, model), () => {
+            const next = buildRequestSnapshot();
+            if (next) setPrompt("");
+            return next;
+        });
+        if (snapshot) await submitGenerationSnapshot(snapshot);
     };
 
     const buildRequestSnapshot = ({ promptText = prompt, negativePromptText, referenceItems = references, firstFrameItem = firstFrame, lastFrameItem = lastFrame, videoReferenceItems = videoReferences, audioReferenceItems = audioReferences, taskCountValue = taskCount, configValue = videoConfig, modelValue = model, workflowRef = videoConfig.videoWorkflowRef }: { promptText?: string; negativePromptText?: string; referenceItems?: ReferenceImage[]; firstFrameItem?: ReferenceImage | null; lastFrameItem?: ReferenceImage | null; videoReferenceItems?: ReferenceVideo[]; audioReferenceItems?: ReferenceAudio[]; taskCountValue?: number; configValue?: AiConfig; modelValue?: string; workflowRef?: WorkflowRef | null } = {}) => {
@@ -601,7 +622,7 @@ export default function VideoPage() {
         const omni = kieKlingOmniVariant(configValue, modelValue);
         const acceptsVideoReferences = omni === "reference-to-video" || omni === "transformation";
         const supportsElements = omni !== "transformation";
-        if (!text && !isAutoDLConfig(configValue, modelValue)) {
+        if (!text && !isAutoDLConfig(configValue, modelValue) && !fitAllowsEmptyPrompt(configValue, fitProfileFor(modelValue), { references: referenceItems, firstFrame: firstFrameItem, lastFrame: lastFrameItem, videoReferences: videoReferenceItems, audioReferences: audioReferenceItems })) {
             message.error("请输入视频提示词");
             return null;
         }
@@ -645,7 +666,7 @@ export default function VideoPage() {
         }
         if (!kling && !isAutoDLConfig(configValue, modelValue) && !isMiniMaxH3Config(configValue, modelValue) && !isAgnesVideoV25Model(modelValue)) {
             const limits = channelProtocolForConfig({ ...configValue, model: modelValue, videoModel: modelValue }) === "ark" && (modelKey(modelValue).includes("seedance-2-5") || modelKey(modelValue).includes("seedance2-5")) ? ARK_SEEDANCE_REFERENCE_LIMITS : SEEDANCE_REFERENCE_LIMITS;
-            const videoReferenceError = seedanceVideoReferenceError(videoReferenceItems, limits);
+            const videoReferenceError = legacyVideoReferenceError(configValue, videoReferenceItems, limits);
             if (videoReferenceError) {
                 message.error(`${videoReferenceError}。${seedanceVideoReferenceHint}`);
                 return null;
@@ -823,6 +844,7 @@ export default function VideoPage() {
             setLogs((value) => sortVideoLogs([nextLog, ...value.filter((item) => item.id !== logId)]));
             setResults((value) => updateResultByLogId(value, logId, { status: nextLog.status === "已停止" ? "stopped" : "stopping", durationMs: nextLog.durationMs, error: nextLog.error, errorDetail: nextLog.errorDetail }));
             if (nextLog.error) message.error(nextLog.error);
+            if (nextLog.status === "已停止" && isFitConfig(effectiveConfigRef.current)) message.warning(FIT_VIDEO_STOP_NOTICE);
             await saveGenerationLog(nextLog, active).catch((error) => { message.error(`${nextLog.status === "已停止" ? "任务已停止，但记录保存失败" : "停止记录保存失败"}：${errorMessage(error)}`); });
             if (active()) await persistVideoLog(nextLog);
         } finally {
@@ -831,12 +853,16 @@ export default function VideoPage() {
         }
     };
 
+    // 重试按卡片上锁到提交走完，双击只重试一次
     const retryResult = (result: GenerationResult) => {
         const retryChannelId = videoTaskChannelId(result.task);
-        const snapshot = buildRequestSnapshot({ promptText: result.prompt, negativePromptText: result.config.videoNegativePrompt || "", referenceItems: result.references, firstFrameItem: result.firstFrame, lastFrameItem: result.lastFrame, videoReferenceItems: result.videoReferences, audioReferenceItems: result.audioReferences, taskCountValue: 1, configValue: { ...videoConfig, ...result.config, ...(retryChannelId ? { videoChannelId: retryChannelId, activeChannelId: retryChannelId } : {}), model: result.model, videoModel: result.model }, modelValue: result.model, workflowRef: result.providerWorkflowRef || null });
-        if (!snapshot) return;
-        setResults((value) => value.filter((item) => item.id !== result.id));
-        void submitGenerationSnapshot(snapshot);
+        const configValue = { ...videoConfig, ...result.config, ...(retryChannelId ? { videoChannelId: retryChannelId, activeChannelId: retryChannelId } : {}), model: result.model, videoModel: result.model };
+        return submitOnce(submitLocksRef.current, `retry:${result.id}`, fitCardsToWait(configValue, result.model), () => {
+            const snapshot = buildRequestSnapshot({ promptText: result.prompt, negativePromptText: result.config.videoNegativePrompt || "", referenceItems: result.references, firstFrameItem: result.firstFrame, lastFrameItem: result.lastFrame, videoReferenceItems: result.videoReferences, audioReferenceItems: result.audioReferences, taskCountValue: 1, configValue, modelValue: result.model, workflowRef: result.providerWorkflowRef || null });
+            if (!snapshot) return;
+            setResults((value) => value.filter((item) => item.id !== result.id));
+            return submitGenerationSnapshot(snapshot);
+        });
     };
 
     const previewGenerationResult = (result: GenerationResult) => {
@@ -929,8 +955,8 @@ export default function VideoPage() {
 
     const insertPickedAsset = async (payload: InsertAssetPayload) => {
         const insertImage = async () => {
-            if (!referenceImageLimit) {
-                message.warning("当前 Kling 模型不支持参考图");
+            if (references.length >= referenceImageLimit) {
+                message.warning(isKlingWorkbench && !referenceImageLimit ? "当前 Kling 模型不支持参考图" : referenceCountNotice("参考图", referenceImageLimit, "张"));
                 return;
             }
             if (payload.kind !== "image") {
@@ -956,6 +982,10 @@ export default function VideoPage() {
                 message.warning("请选择视频素材");
                 return;
             }
+            if (videoReferences.length >= videoReferenceLimit) {
+                message.warning(referenceCountNotice("参考视频", videoReferenceLimit, "个"));
+                return;
+            }
             setVideoReferences((value) => [...value, { id: nanoid(), name: payload.title, type: payload.mimeType || "video/mp4", url: payload.url, storageKey: payload.storageKey, width: payload.width, height: payload.height, bytes: payload.bytes }].slice(0, videoReferenceLimit));
         };
         const insertAudio = () => {
@@ -967,9 +997,13 @@ export default function VideoPage() {
                 message.warning("请选择音频素材");
                 return;
             }
+            if (audioReferences.length >= referenceAddLimits.audios) {
+                message.warning(referenceCountNotice("参考音频", referenceAddLimits.audios, "个"));
+                return;
+            }
             const picked = [{ id: nanoid(), name: payload.title, type: payload.mimeType || "audio/mpeg", url: payload.url, storageKey: payload.storageKey, durationMs: payload.durationMs }];
-            const next = autodl ? picked : filterAudioReferencesByDuration(audioReferences, picked, referenceLimits, message.warning);
-            setAudioReferences((value) => [...value, ...next].slice(0, referenceLimits.audios));
+            const next = autodl ? picked : legacyAudioReferences(videoConfig, audioReferences, picked, referenceLimits, message.warning);
+            setAudioReferences((value) => [...value, ...next].slice(0, referenceAddLimits.audios));
         };
 
         if (assetPickerTarget === "element") {
@@ -1129,6 +1163,7 @@ export default function VideoPage() {
             const workflowURL = workflowTask?.urls?.[0] || "";
             const task = workflowTask ? { ...log.task!, status: workflowTask.status, progress: workflowTask.progress, video_url: workflowURL, url: workflowURL, storageKey: comfyOutputStorageKey(workflowURL) || undefined, error: workflowTask.error ? { message: workflowTask.error } : undefined } : await pollVideoGenerationTaskStatus(resumeConfig, log.task!, context.signal);
             if (!active()) return;
+            pollFailuresRef.current.delete(log.id);
             const durationMs = Date.now() - startedAt;
             const baseLog = { ...log, task, durationMs, lastPolledAt: Date.now() };
             if (isFailedVideoTask(task)) {
@@ -1163,12 +1198,16 @@ export default function VideoPage() {
         } catch (error) {
             if (!active() || error instanceof Error && error.name === "AbortError") return;
             const nextLog = { ...log, durationMs: Date.now() - startedAt, lastPolledAt: Date.now(), error: errorMessage(error), errorDetail: errorDetail(error) };
-            if (isTransientVideoPollError(error)) {
+            // 临时错误接着查；openai.fit 的任务非临时错误累计 5 次才判失败（同 fit 生成台），查成功一次清零
+            const { failures, status } = videoPollFailure(error, pollFailuresRef.current.get(log.id) ?? 0, !log.providerWorkflowRef && isFitConfig(resumeConfig));
+            pollFailuresRef.current.set(log.id, failures);
+            if (status === "生成中") {
                 await saveGenerationLog({ ...nextLog, status: "生成中" }, active);
                 if (!active()) return;
                 setResults((value) => updateResultByLogId(value, log.id, { error: nextLog.error, errorDetail: nextLog.errorDetail, durationMs: nextLog.durationMs, lastPolledAt: nextLog.lastPolledAt }));
                 return;
             }
+            pollFailuresRef.current.delete(log.id);
             await finalizeGenerationLog({ ...nextLog, status: "失败" }, active);
             if (!active()) return;
             setResults((value) => updateResultByLogId(value, log.id, { status: "failed", error: nextLog.error, errorDetail: nextLog.errorDetail, durationMs: nextLog.durationMs, lastPolledAt: nextLog.lastPolledAt }));
@@ -1207,11 +1246,15 @@ export default function VideoPage() {
         updateConfig("videoCharacterOrientation", normalizeCharacterOrientation(log.config.videoCharacterOrientation));
     };
 
+    // 历史记录不会因为重试消失，按记录上锁到提交走完，双击只重试一次
     const retryGenerationLog = (log: GenerationLog) => {
         const retryChannelId = videoTaskChannelId(log.task);
-        const snapshot = buildRequestSnapshot({ promptText: log.prompt, negativePromptText: log.config.videoNegativePrompt || "", referenceItems: log.references || [], firstFrameItem: log.firstFrame || null, lastFrameItem: log.lastFrame || null, videoReferenceItems: log.videoReferences || [], audioReferenceItems: log.audioReferences || [], taskCountValue: 1, configValue: { ...videoConfig, ...log.config, ...(retryChannelId ? { videoChannelId: retryChannelId, activeChannelId: retryChannelId } : {}), model: log.model, videoModel: log.model }, modelValue: log.model, workflowRef: log.providerWorkflowRef || null });
-        if (!snapshot) return;
-        void submitGenerationSnapshot(snapshot);
+        const configValue = { ...videoConfig, ...log.config, ...(retryChannelId ? { videoChannelId: retryChannelId, activeChannelId: retryChannelId } : {}), model: log.model, videoModel: log.model };
+        return submitOnce(submitLocksRef.current, `retry:${log.id}`, fitCardsToWait(configValue, log.model), () => {
+            const snapshot = buildRequestSnapshot({ promptText: log.prompt, negativePromptText: log.config.videoNegativePrompt || "", referenceItems: log.references || [], firstFrameItem: log.firstFrame || null, lastFrameItem: log.lastFrame || null, videoReferenceItems: log.videoReferences || [], audioReferenceItems: log.audioReferences || [], taskCountValue: 1, configValue, modelValue: log.model, workflowRef: log.providerWorkflowRef || null });
+            if (!snapshot) return;
+            return submitGenerationSnapshot(snapshot);
+        });
     };
 
     return (
@@ -1453,6 +1496,7 @@ export default function VideoPage() {
             <AssetPickerModal open={assetPickerOpen} defaultTab="my-assets" onInsert={(payload) => void insertPickedAsset(payload)} onClose={() => setAssetPickerOpen(false)} />
             <Modal title="删除生成记录" open={deleteConfirmOpen} onCancel={() => setDeleteConfirmOpen(false)} onOk={deleteSelectedLogs} okText="删除" okButtonProps={{ danger: true }} cancelText="取消">
                 确定删除选中的 {selectedLogIds.length} 条生成记录吗？
+                {logs.some((log) => selectedLogIds.includes(log.id) && log.status === "生成中" && !log.providerWorkflowRef && isFitConfig(log.config)) ? <div className="mt-2 text-xs opacity-70">仍有视频正在生成。删除本地记录后，任务会继续生成并计费，成片可在原模型服务中查看。</div> : null}
             </Modal>
         </div>
     );
@@ -1543,12 +1587,17 @@ function WorkbenchPanel({
     bottomSettingsCollapsed?: boolean;
     setBottomSettingsCollapsed?: (value: boolean) => void;
 }) {
-    const frameReferencesEnabled = Boolean(config.videoWorkflowRef) || supportsVideoFrameReferences(model, channelProtocolForConfig({ ...config, model }));
+    // openai.fit 下首尾帧、声音开关和底部快捷选项都按卡片来；卡片还没读到时先不显示，不按模型名猜
+    const fitMode = !config.videoWorkflowRef && isFitConfig(config);
+    const fit = useFitPanel(fitMode ? model : undefined, config);
+    const fitQuick = fitMode ? (fit.profile && fit.values ? fitQuickControls(fit.profile, fit.values, config.fitAdvanced) : []) : null;
+    const frameReferencesEnabled = Boolean(config.videoWorkflowRef) || (fitMode ? Boolean(fit.profile?.roles.some((role) => role !== "reference")) : supportsVideoFrameReferences(model, channelProtocolForConfig({ ...config, model })));
     const referenceLimits = !config.videoWorkflowRef && channelProtocolForConfig({ ...config, model, videoModel: model }) === "ark" && (modelKey(model).includes("seedance-2-5") || modelKey(model).includes("seedance2-5")) ? ARK_SEEDANCE_REFERENCE_LIMITS : SEEDANCE_REFERENCE_LIMITS;
+    const stripLimits = workbenchReferenceLimits(config, fit.profile, referenceLimits);
     const autodl = !config.videoWorkflowRef && isAutoDLConfig(config, model);
     const { data: autodlWorkflow } = useAutoDLWorkflow(config, model);
     const cogVideoX3 = !config.videoWorkflowRef && isCogVideoX3Model(model);
-    const audioGenerationEnabled = supportsVideoAudioGeneration(model);
+    const audioGenerationEnabled = !fitMode && supportsVideoAudioGeneration(model);
     const generateAudio = boolConfig(config.videoGenerateAudio, false);
     const klingBottomConfig = config.videoWorkflowRef ? null : resolveKlingWorkbenchConfig(config, model);
     const klingBottomVariant = klingBottomConfig?.variant || "";
@@ -1608,7 +1657,9 @@ function WorkbenchPanel({
                                 模型
                                 <ModelPicker config={config} value={model} channelId={config.videoChannelId} workflowRef={config.videoWorkflowRef} onWorkflowChange={(value) => updateConfig("videoWorkflowRef", value)} onChange={(value, channelId) => { updateConfig("videoModel", value); if (channelId) updateConfig("videoChannelId", channelId); }} capability="video" className="canvas-compact-control !h-11 !rounded-xl" onMissingConfig={() => openConfigDialog(false)} fullWidth />
                             </label>
-                            {klingBottom ? (
+                            {fitQuick ? (
+                                fitQuick.map((control) => <QuickSelect key={control.label} label={control.label} value={control.value} options={control.options} onChange={(value) => updateConfig(control.key, control.write(value) as AiConfig[FitPanelKey])} />)
+                            ) : klingBottom ? (
                                 <KlingV26BottomSettings config={config} updateConfig={updateConfig} generateAudio={generateAudio} isKlingV3={klingBottomVariant === "v3"} />
                             ) : (
                                 <>
@@ -1668,7 +1719,7 @@ function WorkbenchPanel({
                             <Button size="small" icon={<Upload className="size-3.5" />} onClick={onUploadReferences}>上传</Button>
                             <Button size="small" icon={<FolderPlus className="size-3.5" />} onClick={() => onOpenAssetPicker("image")}>从素材库选择</Button>
                         </div>
-                        <ReferenceImageStrip references={references} maxCount={referenceLimits.images} onRemoveReference={onRemoveReference} onMoveReference={onMoveReference} />
+                        <ReferenceImageStrip references={references} maxCount={stripLimits.images} onRemoveReference={onRemoveReference} onMoveReference={onMoveReference} />
                     </div>
                 </WorkbenchSection>
                 <WorkbenchSection title="参考视频" count={videoReferences.length}>
@@ -1678,7 +1729,7 @@ function WorkbenchPanel({
                             <Button size="small" icon={<Upload className="size-3.5" />} onClick={onUploadReferences}>上传</Button>
                             <Button size="small" icon={<FolderPlus className="size-3.5" />} onClick={() => onOpenAssetPicker("video")}>从素材库选择</Button>
                         </div>
-                        <ReferenceVideoStrip references={videoReferences} maxCount={referenceLimits.videos} onRemoveReference={onRemoveVideoReference} onMoveReference={onMoveVideoReference} />
+                        <ReferenceVideoStrip references={videoReferences} maxCount={stripLimits.videos} onRemoveReference={onRemoveVideoReference} onMoveReference={onMoveVideoReference} />
                     </div>
                 </WorkbenchSection>
                 <WorkbenchSection title="参考音频" count={audioReferences.length}>
@@ -1688,7 +1739,7 @@ function WorkbenchPanel({
                             <Button size="small" icon={<Upload className="size-3.5" />} onClick={onUploadReferences}>上传</Button>
                             <Button size="small" icon={<FolderPlus className="size-3.5" />} onClick={() => onOpenAssetPicker("audio")}>从素材库选择</Button>
                         </div>
-                        <ReferenceAudioStrip references={audioReferences} maxCount={referenceLimits.audios} onRemoveReference={onRemoveAudioReference} onMoveReference={onMoveAudioReference} />
+                        <ReferenceAudioStrip references={audioReferences} maxCount={stripLimits.audios} maxBytes={stripLimits.audioMaxBytes} onRemoveReference={onRemoveAudioReference} onMoveReference={onMoveAudioReference} />
                     </div>
                 </WorkbenchSection>
                 {motionControl ? <CharacterOrientationSetting value={config.videoCharacterOrientation} onChange={(value) => updateConfig("videoCharacterOrientation", value)} /> : null}
@@ -1798,7 +1849,7 @@ function ReferenceImageStrip({ references, compact = false, maxCount = SEEDANCE_
                     </button>
                 </div>
             ))}
-            {!references.length ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">暂无参考图，最多 {maxCount} 张</div> : null}
+            {!references.length ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">{emptyReferenceHint("参考图", maxCount, "张")}</div> : null}
         </div>
     );
 }
@@ -1816,12 +1867,12 @@ function ReferenceVideoStrip({ references, compact = false, maxCount = SEEDANCE_
                     </button>
                 </div>
             ))}
-            {!references.length ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">暂无参考视频，最多 {maxCount} 个</div> : null}
+            {!references.length ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">{emptyReferenceHint("参考视频", maxCount, "个")}</div> : null}
         </div>
     );
 }
 
-function ReferenceAudioStrip({ references, compact = false, maxCount = SEEDANCE_REFERENCE_LIMITS.audios, onRemoveReference, onMoveReference }: { references: ReferenceAudio[]; compact?: boolean; maxCount?: number; onRemoveReference: (id: string) => void; onMoveReference: (index: number, offset: number) => void }) {
+function ReferenceAudioStrip({ references, compact = false, maxCount = SEEDANCE_REFERENCE_LIMITS.audios, maxBytes = SEEDANCE_REFERENCE_LIMITS.audioMaxBytes, onRemoveReference, onMoveReference }: { references: ReferenceAudio[]; compact?: boolean; maxCount?: number; maxBytes?: number; onRemoveReference: (id: string) => void; onMoveReference: (index: number, offset: number) => void }) {
     return (
         <div className={`hover-scrollbar hover-scrollbar-hint flex w-full min-w-0 max-w-full gap-2 overflow-x-scroll overflow-y-hidden rounded-lg border border-dashed border-stone-300 p-2 overscroll-x-contain dark:border-stone-700 ${compact ? "min-h-14" : "min-h-24 pb-3"}`}>
             {references.map((item, index) => (
@@ -1838,7 +1889,7 @@ function ReferenceAudioStrip({ references, compact = false, maxCount = SEEDANCE_
                     </button>
                 </div>
             ))}
-            {!references.length ? <div className="flex min-w-full items-center justify-center text-center text-sm text-stone-500">暂无参考音频，最多 {maxCount} 个，mp3/wav，单个 15MB 内</div> : null}
+            {!references.length ? <div className="flex min-w-full items-center justify-center text-center text-sm text-stone-500">{emptyReferenceHint("参考音频", maxCount, "个", `，mp3/wav，单个 ${maxBytes / 1024 / 1024}MB 内`)}</div> : null}
         </div>
     );
 }
@@ -2066,6 +2117,9 @@ function PendingVideoCard({ result, now, onCopyPrompt, onStop, onRetry, onDelete
     const stopping = result.status === "stopping";
     const stopped = result.status === "stopped";
     const durationMs = stopping || stopped ? result.durationMs || 0 : Math.max(0, now - result.createdAt);
+    // openai.fit 没有取消接口：停止只是不再等，照常生成、照常扣费，结果却丢了，再点「重新生成」就是第二次扣费（2026-11-11 画布上真出过）。
+    // 提交途中停了，fit 已经收下的任务这里也接不回来，所以 fit 的任务从提交起就不给停，等出结果；卡住的记录可以删掉
+    const showStop = stopped || stopping || Boolean(result.providerWorkflowRef) || !isFitConfig(result.config);
     return (
         <div className="overflow-hidden rounded-lg border border-dashed border-stone-300 bg-stone-50 dark:border-stone-700 dark:bg-stone-900">
             <div className="relative aspect-video">
@@ -2074,10 +2128,10 @@ function PendingVideoCard({ result, now, onCopyPrompt, onStop, onRetry, onDelete
                     {stopped ? <Square className="size-6" /> : <LoaderCircle className="size-6 animate-spin" />}
                     {stopped || stopping ? <span>{stopped ? "已停止" : result.error ? "停止未确认" : "停止中"}</span> : progress !== null ? <span className="animate-pulse font-semibold text-sky-500">正在创作 {progress}%</span> : <span>生成中</span>}
                     <span className="rounded-full bg-white/80 px-2 py-1 text-xs text-stone-600 shadow-sm dark:bg-stone-950/70 dark:text-stone-300">{formatDuration(durationMs)}</span>
-                    <Button type={stopped ? "default" : "primary"} danger={!stopped} disabled={stopping && !result.error} onClick={stopped ? onRetry : onStop} aria-label={stopped ? "重新生成" : stopping ? result.error ? "重试停止" : "停止中" : "停止"} className="!h-6 !min-w-12 !rounded-full !px-3">
+                    {showStop ? <Button type={stopped ? "default" : "primary"} danger={!stopped} disabled={stopping && !result.error} onClick={stopped ? onRetry : onStop} aria-label={stopped ? "重新生成" : stopping ? result.error ? "重试停止" : "停止中" : "停止"} className="!h-6 !min-w-12 !rounded-full !px-3">
                         {stopped ? <RotateCcw className="size-3" /> : stopping && !result.error ? <LoaderCircle className="size-3.5 animate-spin" /> : <Square className="size-3" fill="currentColor" />}
                         {stopped ? "重新生成" : null}
-                    </Button>
+                    </Button> : null}
                 </div>
                 {progress !== null && !stopped ? (
                     <div className="absolute inset-x-4 bottom-4 z-10 flex flex-col gap-1">
@@ -2209,7 +2263,7 @@ function TaskInfo({ item, error, onCopyPrompt }: { item: GenerationResult; error
                 <Tag className="m-0">{formatLogTime(item.createdAt)}</Tag>
                 <Tag className="m-0">{item.model}</Tag>
                 <Tag className="m-0">{item.config.size || "auto"}</Tag>
-                <Tag className="m-0">{item.config.vquality || "720"}p</Tag>
+                <Tag className="m-0">{/^\d+$/.test(item.config.vquality || "720") ? `${item.config.vquality || "720"}p` : item.config.vquality}</Tag>
                 <Tag className="m-0">{item.config.videoSeconds || "6"}s</Tag>
                 <Tag className="m-0">数量 {item.taskCount || 1}</Tag>
                 {item.durationMs ? <Tag className="m-0">{formatDuration(item.durationMs)}</Tag> : null}
@@ -2697,7 +2751,7 @@ function sortVideoLogs(logs: GenerationLog[]) {
 }
 
 function videoFromTaskResponse(task: VideoResponse, durationMs: number): GeneratedVideo {
-    const size = parseTaskVideoSize((task as Record<string, unknown>).size);
+    const size = videoTaskSize(task);
     return {
         id: task.id || task.video_id || task.task_id || nanoid(),
         url: task.video_url || task.url || "",
@@ -2710,24 +2764,12 @@ function videoFromTaskResponse(task: VideoResponse, durationMs: number): Generat
     };
 }
 
-function parseTaskVideoSize(value: unknown) {
-    const match = typeof value === "string" ? value.match(/^(\d+)x(\d+)$/) : null;
-    return { width: match ? Number(match[1]) : 1280, height: match ? Number(match[2]) : 720 };
-}
-
 function isCompletedVideoTask(task: VideoResponse) {
     return Boolean(task.video_url || task.url) || ["completed", "complete", "done", "succeeded", "success"].includes((task.status || "").toLowerCase());
 }
 
 function isFailedVideoTask(task: VideoResponse) {
     return ["failed", "fail", "error", "cancelled", "canceled"].includes((task.status || "").toLowerCase());
-}
-
-function isTransientVideoPollError(error: unknown) {
-    if (isRetryableWorkflowError(error)) return true;
-    if (!axios.isAxiosError(error)) return false;
-    const status = error.response?.status;
-    return !error.response || status === 408 || status === 429 || Boolean(status && status >= 500);
 }
 
 function isRecoverableBackendVideoTask(task: VideoResponse) {
@@ -2863,26 +2905,6 @@ function isSupportedAudioFile(file: File) {
     return file.type === "audio/mpeg" || file.type === "audio/mp3" || file.type === "audio/wav" || file.type === "audio/x-wav" || /\.(mp3|wav)$/i.test(file.name);
 }
 
-function filterAudioReferencesByDuration(existing: ReferenceAudio[], next: ReferenceAudio[], limits: typeof SEEDANCE_REFERENCE_LIMITS, warn: (content: string) => void) {
-    let total = existing.reduce((sum, item) => sum + (item.durationMs || 0), 0);
-    const accepted: ReferenceAudio[] = [];
-    let skipped = false;
-    for (const item of next) {
-        if (item.durationMs && (item.durationMs < 2000 || item.durationMs > limits.maxDurationMs)) {
-            skipped = true;
-            continue;
-        }
-        if (item.durationMs && total + item.durationMs > limits.totalDurationMs) {
-            skipped = true;
-            continue;
-        }
-        total += item.durationMs || 0;
-        accepted.push(item);
-    }
-    if (skipped) warn(`已忽略不符合时长要求的参考音频：单个 2-${limits.maxDurationMs / 1000} 秒，总时长不超过 ${limits.totalDurationMs / 1000} 秒`);
-    return accepted;
-}
-
 function moveListItem<T>(items: T[], index: number, offset: number) {
     const targetIndex = index + offset;
     if (targetIndex < 0 || targetIndex >= items.length) return items;
@@ -2975,6 +2997,8 @@ function buildLog({ prompt, model, config, references, firstFrame, lastFrame, vi
 function buildVideoConfig(config: AiConfig, model: string): AiConfig {
     const videoChannelId = resolveVideoChannelId(config, model, config.videoChannelId, config.activeChannelId);
     config = { ...config, videoChannelId: videoChannelId || config.videoChannelId, activeChannelId: videoChannelId || config.activeChannelId };
+    const fit = fitVideoConfig(config, model);
+    if (fit) return fit;
     if (isAutoDLConfig(config, model)) return { ...config, model, videoModel: model, activeChannelId: config.videoChannelId || config.activeChannelId };
     const seedance = isSeedanceVideoConfig({ ...config, model });
     const cogVideoX3 = isCogVideoX3Model(model);

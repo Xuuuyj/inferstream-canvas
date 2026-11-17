@@ -191,7 +191,7 @@ async function requestCompletion(config: CanvasAgentAiConfig, systemPrompt: stri
 
     const response = await fetch(aiApiUrl(config, "/chat/completions"), {
         method: "POST",
-        headers: aiHeaders(config, "application/json"),
+        headers: aiHeaders(config, aiApiUrl(config, "/chat/completions"), "application/json"),
         body: JSON.stringify(body),
         signal,
     });
@@ -299,7 +299,7 @@ async function requestResponsesCompletion(config: CanvasAgentAiConfig, systemPro
 
     const response = await fetch(aiApiUrl(config, "/responses"), {
         method: "POST",
-        headers: aiHeaders(config, "application/json"),
+        headers: aiHeaders(config, aiApiUrl(config, "/responses"), "application/json"),
         body: JSON.stringify(body),
         signal,
     });
@@ -395,7 +395,7 @@ async function requestGeminiCompletion(config: CanvasAgentAiConfig, systemPrompt
     const { model: _model, stream: _stream, ...nativeBody } = body;
     const response = await fetch(proxy ? aiApiUrl(config, "/chat/completions") : geminiActionUrl(channel?.baseUrl || config.baseUrl, config.model, config.textStreaming ? "streamGenerateContent" : "generateContent"), {
         method: "POST",
-        headers: proxy ? aiHeaders(config, "application/json") : geminiDirectHeaders(config),
+        headers: proxy ? aiHeaders(config, aiApiUrl(config, "/chat/completions"), "application/json") : geminiDirectHeaders(config),
         body: JSON.stringify(proxy ? body : nativeBody),
         signal,
     });

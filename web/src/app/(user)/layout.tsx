@@ -4,7 +4,10 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { AppTopNav } from "@/components/layout/app-top-nav";
+import { canvasProjectsOwner, writeCanvasProjectsOwner } from "@/lib/fit-bridge";
 import { fetchUserConfig } from "@/services/api/user-config";
+import { startInferStreamLogin } from "@/lib/inferstream-login";
+import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 
 const protectedPrefixes = ["/asset-library"];
@@ -14,8 +17,18 @@ export default function UserLayout({ children }: { children: ReactNode }) {
     const router = useRouter();
     const user = useUserStore((state) => state.user);
     const isReady = useUserStore((state) => state.isReady);
+    const inferStreamLogin = useConfigStore((state) => state.publicSettings?.auth?.inferStreamLogin === true);
     const wasLoggedOutRef = useRef(false);
     const isProtectedPage = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+
+    useEffect(() => {
+        if (!inferStreamLogin || !isReady || user || pathname === "/auth/inferstream" || isProtectedPage) return;
+        const current = window.location;
+        const redirect = pathname === "/login"
+            ? new URLSearchParams(current.search).get("redirect") ?? "/"
+            : current.pathname + current.search + current.hash;
+        void startInferStreamLogin(redirect, true).catch(() => {});
+    }, [inferStreamLogin, isProtectedPage, isReady, pathname, user]);
 
     useEffect(() => {
         if (!isReady || !isProtectedPage || user) return;
@@ -42,6 +55,8 @@ export default function UserLayout({ children }: { children: ReactNode }) {
                 syncEnabled &&
                 canvasStore.hydrated
             ) {
+                // 记下本机画布项目同步到了哪个账号：之后用别的 openai.fit 账号静默登录前要先问（见 use-fit-bridge-store）
+                writeCanvasProjectsOwner(canvasProjectsOwner(user));
                 void canvasStore.syncWithRemote(token, true);
             }
             const { useAssetStore } = await import("@/stores/use-asset-store");

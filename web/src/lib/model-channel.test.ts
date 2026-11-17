@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { directAIProviderForProtocol, modelChannelApiKeyUrls, modelChannelDefaultBaseUrls, modelChannelProtocolOptions } from "./model-channel";
+import { FIT_CHANNEL_ID, FIT_KEYS_URL, FIT_ORIGIN, FIT_PRICING_URL, directAIProviderForProtocol, fitProtocolOptions, modelChannelAttributionHeaders, modelChannelDefaultBaseUrls, modelChannelProtocolOptions, modelChannelProtocols } from "./model-channel";
 
 test("built-in protocol options retain both settings panels' labels and order", () => {
     assert.deepEqual(modelChannelProtocolOptions, [
@@ -9,6 +9,7 @@ test("built-in protocol options retain both settings panels' labels and order", 
         { label: "Grok2API", value: "grok2api" },
         { label: "MiniMax & METASO", value: "minimax" },
         { label: "APIMart", value: "apimart" },
+        { label: "88API", value: "88api" },
         { label: "TokenDance", value: "tokendance" },
         { label: "RunningHub", value: "runninghub" },
         { label: "ComfyUI", value: "comfyui" },
@@ -19,13 +20,14 @@ test("built-in protocol options retain both settings panels' labels and order", 
     ]);
 });
 
-test("built-in protocols retain all existing default URLs and API Key links", () => {
+test("built-in protocols retain all existing default URLs", () => {
     assert.deepEqual(modelChannelDefaultBaseUrls, {
         openai: "https://api.openai.com",
         gemini: "https://generativelanguage.googleapis.com",
         grok2api: "",
         minimax: "https://metaso.cn/api/minimax",
         apimart: "https://api.apimart.ai/v1",
+        "88api": "https://88api.ai/v1",
         runninghub: "https://www.runninghub.cn",
         comfyui: "",
         autodl: "https://autodl.art",
@@ -34,11 +36,19 @@ test("built-in protocols retain all existing default URLs and API Key links", ()
         mimo: "https://api.xiaomimimo.com",
         tokendance: "https://tokendance.space/gateway/v1",
     });
-    assert.deepEqual(modelChannelApiKeyUrls, {
-        minimax: "https://metaso.cn/minimax-h3/?s=tt",
-        apimart: "https://apimart.ai/register?aff=fWMrEv",
-        mimo: "https://platform.xiaomimimo.com/?ref=JFZQR2",
-    });
+});
+
+test("protocols carry no referral links and requests carry no attribution header", () => {
+    for (const protocol of modelChannelProtocols) assert.equal("apiKeyUrl" in protocol, false, protocol.value);
+    for (const protocol of ["tokendance", "openai", ""]) assert.deepEqual(modelChannelAttributionHeaders(protocol), {});
+});
+
+test("openai.fit constants describe the only exposed channel", () => {
+    assert.equal(FIT_ORIGIN, "https://openai.fit");
+    assert.equal(FIT_CHANNEL_ID, "openai-fit");
+    assert.equal(FIT_KEYS_URL, "https://openai.fit/keys");
+    assert.equal(FIT_PRICING_URL, "https://openai.fit/pricing");
+    assert.deepEqual(fitProtocolOptions, [{ label: "openai.fit", value: "openai" }]);
 });
 
 test("public parameter translation eligibility keeps exact protocol matching", () => {

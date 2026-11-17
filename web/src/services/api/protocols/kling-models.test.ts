@@ -19,15 +19,19 @@ function configFor(model: string, protocol: ModelChannelProtocol = "openai", nam
     };
 }
 
+// 本地渠道现在固定成 openai.fit 一条，渠道描述匹配改用 publicChannels（kling-models.ts 仍然读它们）来测。
+function remoteConfigFor(model: string, protocol: ModelChannelProtocol = "openai", name = "custom"): AiConfig {
+    return { ...configFor(model, protocol, name), channelMode: "remote", localChannels: [], publicChannels: [{ id: "chosen", protocol, name, baseUrl: "https://proxy.example", models: [model] }] };
+}
+
 test("Kling panel matching keeps channel descriptions distinct from protocol selection", () => {
     const model = "kling-v3";
-    assert.equal(isAPIMartKlingV3Config(configFor(model, "apimart"), model), false);
-    assert.equal(isAPIMartKlingV3Config(configFor(model, "openai", "APIMart channel"), model), true);
-    const byURL = configFor(model);
-    byURL.localChannels[0].baseUrl = "https://api.apimart.ai/v1";
+    assert.equal(isAPIMartKlingV3Config(remoteConfigFor(model, "apimart"), model), false);
+    assert.equal(isAPIMartKlingV3Config(remoteConfigFor(model, "openai", "APIMart channel"), model), true);
+    const byURL = remoteConfigFor(model);
+    byURL.publicChannels[0].baseUrl = "https://api.apimart.ai/v1";
     assert.equal(isAPIMartKlingV3Config(byURL, model), true);
-    const remote = configFor(model);
-    remote.channelMode = "remote";
+    const remote = remoteConfigFor(model);
     remote.publicChannels = [{ id: "chosen", protocol: "openai", models: [model], remark: "APIMART" }];
     assert.equal(isAPIMartKlingV3Config(remote, model), true);
     assert.equal(isAPIMartKlingV3Config(remote, "kling-v3-extra"), false);
@@ -43,10 +47,10 @@ test("same model on different channels retains the selected channel identity", (
 });
 
 test("Kling model variants keep existing exact normalized matches", () => {
-    const apimart = configFor("kling-v2.6", "openai", "APIMart");
+    const apimart = remoteConfigFor("kling-v2.6", "openai", "APIMart");
     assert.equal(isAPIMartKlingV26Config(apimart, "kling-v2.6"), true);
     assert.equal(isAPIMartKlingMotionControlConfig(apimart, "kling-v2.6-motion-control"), true);
-    const kie = configFor("kling-3.0/video", "openai", "KIE");
+    const kie = remoteConfigFor("kling-3.0/video", "openai", "KIE");
     assert.equal(isKIEKlingV3Config(kie, "kling-3.0/video"), true);
     assert.equal(isKIEKlingMotionControlConfig(kie, "kling-2.6/motion-control"), true);
     assert.equal(isKIEKlingMotionControlConfig(kie, "kling-3.0/motion-control"), true);
@@ -60,9 +64,9 @@ test("Kling model variants keep existing exact normalized matches", () => {
 
 test("KIE Grok detection remains protocol-based, unlike Kling panel detection", () => {
     const model = "grok-imagine/text-to-video";
-    assert.equal(isKIEGrokVideoModel(configFor(model, "openai", "KIE"), model), false);
-    assert.equal(isKIEGrokVideoModel(configFor(model, "kie"), model), true);
-    assert.equal(isKIEGrokVideoModel(configFor(model, "kie"), "grok-imagine-video"), false);
+    assert.equal(isKIEGrokVideoModel(remoteConfigFor(model, "openai", "KIE"), model), false);
+    assert.equal(isKIEGrokVideoModel(remoteConfigFor(model, "kie"), model), true);
+    assert.equal(isKIEGrokVideoModel(remoteConfigFor(model, "kie"), "grok-imagine-video"), false);
 });
 
 test("panel duration and ratio normalization preserve all existing boundaries", () => {

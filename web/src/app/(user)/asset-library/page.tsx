@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { App, Button, Card, Drawer, Empty, Image, Input, Pagination, Spin, Tag, Typography } from "antd";
 import { useCopyText } from "@/hooks/use-copy-text";
-import { getProxyUrl } from "@/services/image-storage";
+import { fetchViaProxy } from "@/services/image-storage";
 import { cn } from "@/lib/utils";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { fetchAssetLibrary, type AssetLibraryItem } from "@/services/api/assets";
@@ -50,7 +50,7 @@ export default function AssetLibraryPage() {
         try {
             if (useAssetStore.getState().assets.some((item) => item.metadata?.source === "asset-library" && item.metadata.assetId === asset.id)) return void message.info("该素材已在我的素材中");
             if (asset.type === "image") {
-                const blob = await (await fetch(getProxyUrl(asset.url))).blob();
+                const blob = await (await fetchViaProxy(asset.url)).blob();
                 const bitmap = await createImageBitmap(blob);
                 const { width, height } = bitmap;
                 bitmap.close();

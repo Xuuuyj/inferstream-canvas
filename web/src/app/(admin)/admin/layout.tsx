@@ -1,6 +1,6 @@
 "use client";
 
-import { AuditOutlined, FileTextOutlined, HomeOutlined, LogoutOutlined, PictureOutlined, SettingOutlined, ToolOutlined, TransactionOutlined, UserOutlined } from "@ant-design/icons";
+import { FileTextOutlined, HomeOutlined, LogoutOutlined, PictureOutlined, SettingOutlined, ToolOutlined, UserOutlined } from "@ant-design/icons";
 import { Button, Flex, Layout, Menu, Typography, theme } from "antd";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -8,13 +8,12 @@ import type { ReactNode } from "react";
 import { useEffect } from "react";
 
 import { UserStatusActions } from "@/components/layout/user-status-actions";
+import { useLogout } from "@/hooks/use-logout";
 import { adminLayoutStyle } from "@/lib/app-theme";
 import { useUserStore } from "@/stores/use-user-store";
 
 const adminMenus = [
     { key: "/admin/users", icon: <UserOutlined />, label: "用户管理" },
-    { key: "/admin/credit-logs", icon: <TransactionOutlined />, label: "算力点日志" },
-    { key: "/admin/ai-logs", icon: <AuditOutlined />, label: "AI 日志" },
     { key: "/admin/prompts", icon: <FileTextOutlined />, label: "提示词管理" },
     { key: "/admin/skills", icon: <ToolOutlined />, label: "Skill 管理" },
     { key: "/admin/assets", icon: <PictureOutlined />, label: "素材库" },
@@ -28,7 +27,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     const token = useUserStore((state) => state.token);
     const user = useUserStore((state) => state.user);
     const isReady = useUserStore((state) => state.isReady);
-    const logout = useUserStore((state) => state.clearSession);
+    const logout = useLogout();
     const activeKey = pathname.startsWith("/admin/settings")
         ? "/admin/settings"
         : pathname.startsWith("/admin/assets")

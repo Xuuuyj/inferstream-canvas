@@ -3,7 +3,9 @@
 import { type ReactNode, useState } from "react";
 import { ConfigProvider, Switch } from "antd";
 
+import { FitSettingsPanel, type FitConfigChange } from "@/components/fit-video-settings-panel";
 import { type CanvasTheme } from "@/lib/canvas-theme";
+import { isFitConfig } from "@/lib/fit-config";
 import type { AiConfig } from "@/stores/use-config-store";
 
 const qualityOptions = [
@@ -40,6 +42,8 @@ export const imageSizeOptions = aspectOptions.map((item) => ({
 
 type ImageSettingsPanelProps = {
     config: AiConfig;
+    /** 画布节点自己的模型；不传时用 config.imageModel（图片工作台）。 */
+    modelName?: string;
     onConfigChange: (key: "quality" | "size" | "count", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
@@ -50,8 +54,27 @@ type ImageSettingsPanelProps = {
     quickCount?: number;
 };
 
-export function ImageSettingsPanel({ config, onConfigChange, theme, showTitle = true, showSize = true, showCount = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 10 }: ImageSettingsPanelProps) {
+export function ImageSettingsPanel({ config, modelName, onConfigChange, theme, showTitle = true, showSize = true, showCount = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", maxCount = 15, quickCount = 10 }: ImageSettingsPanelProps) {
     const [snapDimensionToStep, setSnapDimensionToStep] = useState(true);
+    const fitModel = modelName ?? (config.imageModel || config.model);
+    if (isFitConfig(config) && fitModel)
+        return (
+            <ImageSettingsTheme theme={theme}>
+                <FitSettingsPanel
+                    kind="image"
+                    config={config}
+                    model={fitModel}
+                    onConfigChange={onConfigChange as FitConfigChange}
+                    theme={theme}
+                    showTitle={showTitle}
+                    className={className}
+                    showSize={showSize}
+                    showCount={showCount}
+                    maxCount={maxCount}
+                    quickCount={quickCount}
+                />
+            </ImageSettingsTheme>
+        );
     const quality = config.quality || "auto";
     const count = Math.max(1, Math.min(maxCount, Math.floor(Math.abs(Number(config.count)) || 1)));
     const activeSize = config.size || "auto";
