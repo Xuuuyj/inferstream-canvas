@@ -1,17 +1,17 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useParams } from "next/navigation";
 import { FileText, Image as ImageIcon, Music2, Plus, Video, X } from "lucide-react";
 import { Popover } from "antd";
 
 import { canvasThemes } from "@/lib/canvas-theme";
-import { getImagePreviewRevision, previewUrlFor, subscribeImagePreviews } from "@/services/image-storage";
+import { getImagePreviewRevision, previewUrlFor, resolveImageUrl, subscribeImagePreviews } from "@/services/image-storage";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { buildAllCanvasResourceReferences, type CanvasResourceReference } from "../utils/canvas-resource-references";
 import type { CanvasNodeData } from "../types";
 
-export function CanvasNodeReferenceBar({ nodeId, connectedNodes, onDisconnect, onStartSelection }: { nodeId: string; connectedNodes: CanvasNodeData[]; onDisconnect?: (fromNodeId: string, toNodeId: string) => void; onStartSelection?: (nodeId: string) => void }) {
+export function CanvasNodeReferenceBar({ nodeId, connectedNodes, maskReference, onDisconnect, onStartSelection }: { nodeId: string; connectedNodes: CanvasNodeData[]; maskReference?: string; onDisconnect?: (fromNodeId: string, toNodeId: string) => void; onStartSelection?: (nodeId: string) => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const references = buildAllCanvasResourceReferences(connectedNodes);
     useSyncExternalStore(subscribeImagePreviews, getImagePreviewRevision, getImagePreviewRevision);
@@ -19,6 +19,7 @@ export function CanvasNodeReferenceBar({ nodeId, connectedNodes, onDisconnect, o
         <div className="mb-2">
             <div className="mb-1.5 text-[11px] font-medium" style={{ color: theme.node.muted }}>参考内容</div>
             <div className="thin-scrollbar flex min-h-12 gap-2 overflow-x-auto pb-1">
+                {maskReference ? <MaskReferenceItem source={maskReference} /> : null}
                 {references.map((reference) => <ReferenceItem key={reference.id} reference={reference} onRemove={() => onDisconnect?.(reference.nodeId, nodeId)} />)}
                 <button type="button" className="grid size-12 shrink-0 place-items-center rounded-xl border bg-transparent transition hover:opacity-70" style={{ borderColor: theme.toolbar.border, color: theme.node.muted }} title="从画布选择参考节点" onClick={() => onStartSelection?.(nodeId)}>
                     <Plus className="size-4" />
@@ -41,6 +42,29 @@ function ReferenceItem({ reference, onRemove }: { reference: CanvasResourceRefer
                     {reference.kind === "image" && previewUrl ? <img src={previewUrl} alt="" className="size-full object-cover" /> : reference.kind === "video" && previewUrl ? <video src={previewUrl} className="size-full object-cover" muted /> : <Icon className="size-4 opacity-65" />}
                 </span>
                 <button type="button" className="absolute right-0 top-0 grid size-5 place-items-center rounded-full border opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus-visible:opacity-100" style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border }} aria-label="断开参考连接" title="断开参考连接" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onRemove(); }}><X className="size-3" /></button>
+            </div>
+        </Popover>
+    );
+}
+
+/** 局部编辑时实际发给模型的那张带蓝色遮罩的图。它不是连线上的节点，不能断开。 */
+function MaskReferenceItem({ source }: { source: string }) {
+    const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const [previewUrl, setPreviewUrl] = useState<string>();
+    useEffect(() => {
+        let cancelled = false;
+        void (source.startsWith("image:") || source.startsWith("server:") ? resolveImageUrl(source, "") : Promise.resolve(source))
+            .then((url) => { if (!cancelled) setPreviewUrl(url || undefined); })
+            .catch(() => undefined);
+        return () => { cancelled = true; };
+    }, [source]);
+    return (
+        <Popover placement="topLeft" mouseEnterDelay={0.15} arrow={false} styles={{ container: { padding: 0, background: "transparent", boxShadow: "none" } }} content={previewUrl ? <img src={previewUrl} alt="发给模型的遮罩图" className="block max-h-52 max-w-72 rounded-lg object-contain" /> : null}>
+            <div className="relative grid size-12 shrink-0 place-items-center rounded-xl border" style={{ background: theme.toolbar.activeBg, borderColor: "#2563eb" }} title="局部编辑时发给模型的图：蓝色区域是要修改的位置">
+                <span className="grid size-full place-items-center overflow-hidden rounded-[inherit]">
+                    {previewUrl ? <img src={previewUrl} alt="" className="size-full object-cover" /> : <ImageIcon className="size-4 opacity-65" />}
+                </span>
+                <span className="absolute inset-x-0 bottom-0 rounded-b-[inherit] bg-[#2563eb] text-center text-[10px] leading-4 text-white">遮罩</span>
             </div>
         </Popover>
     );
