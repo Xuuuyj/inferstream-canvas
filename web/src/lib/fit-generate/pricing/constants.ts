@@ -1,0 +1,144 @@
+// 由 sync-fit-generate 生成（已删去原注释），勿手改；更新用 bun run sync:fit，来源见 SOURCE.json
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import type { TFunction } from '../shims/i18n'
+
+import type { TokenUnit } from './types'
+
+export const SORT_OPTIONS = {
+  SUCCESS_RATE: 'success-rate',
+  NAME: 'name',
+  PRICE_LOW: 'price-low',
+  PRICE_HIGH: 'price-high',
+} as const
+
+export type SortOption = (typeof SORT_OPTIONS)[keyof typeof SORT_OPTIONS]
+
+export const DEFAULT_SORT: SortOption = SORT_OPTIONS.SUCCESS_RATE
+
+export function getSortLabels(t: TFunction): Record<SortOption, string> {
+  return {
+    [SORT_OPTIONS.SUCCESS_RATE]: t('Success rate: High to Low'),
+    [SORT_OPTIONS.NAME]: t('Name'),
+    [SORT_OPTIONS.PRICE_LOW]: t('Price: Low to High'),
+    [SORT_OPTIONS.PRICE_HIGH]: t('Price: High to Low'),
+  }
+}
+
+export const FILTER_ALL = 'all'
+
+export const QUOTA_TYPES = {
+  ALL: 'all',
+  TOKEN: 'token',
+  REQUEST: 'request',
+  TASK: 'task',
+} as const
+
+export type QuotaTypeOption = (typeof QUOTA_TYPES)[keyof typeof QUOTA_TYPES]
+
+export function getQuotaTypeLabels(
+  t: TFunction
+): Record<QuotaTypeOption, string> {
+  return {
+    [QUOTA_TYPES.ALL]: t('All Models'),
+    [QUOTA_TYPES.TOKEN]: t('Token-based'),
+    [QUOTA_TYPES.REQUEST]: t('Per Request'),
+    [QUOTA_TYPES.TASK]: t('Task billing'),
+  }
+}
+
+export const ENDPOINT_TYPES = {
+  ALL: 'all',
+  OPENAI: 'openai',
+  OPENAI_RESPONSE: 'openai-response',
+  ANTHROPIC: 'anthropic',
+  GEMINI: 'gemini',
+  JINA_RERANK: 'jina-rerank',
+  IMAGE_GENERATION: 'image-generation',
+  EMBEDDINGS: 'embeddings',
+  OPENAI_VIDEO: 'openai-video',
+} as const
+
+export type EndpointTypeOption =
+  (typeof ENDPOINT_TYPES)[keyof typeof ENDPOINT_TYPES]
+
+export function getEndpointTypeLabels(
+  t: TFunction
+): Record<EndpointTypeOption, string> {
+  return {
+    [ENDPOINT_TYPES.ALL]: t('All Types'),
+    [ENDPOINT_TYPES.OPENAI]: 'Chat',
+    [ENDPOINT_TYPES.OPENAI_RESPONSE]: 'Response',
+    [ENDPOINT_TYPES.ANTHROPIC]: 'Anthropic',
+    [ENDPOINT_TYPES.GEMINI]: 'Gemini',
+    [ENDPOINT_TYPES.JINA_RERANK]: 'Rerank',
+    [ENDPOINT_TYPES.IMAGE_GENERATION]: t('Image'),
+    [ENDPOINT_TYPES.EMBEDDINGS]: t('Embeddings'),
+    [ENDPOINT_TYPES.OPENAI_VIDEO]: t('Video'),
+  }
+}
+
+export const MODEL_KINDS = {
+  ALL: 'all',
+  TEXT: 'text',
+  IMAGE: 'image',
+  VIDEO: 'video',
+} as const
+
+export type ModelKind = Exclude<
+  (typeof MODEL_KINDS)[keyof typeof MODEL_KINDS],
+  typeof MODEL_KINDS.ALL
+>
+
+export const FILTER_SECTIONS = {
+  PRICING_TYPE: 'pricingType',
+  ENDPOINT_TYPE: 'endpointType',
+  VENDOR: 'vendor',
+  GROUP: 'group',
+  TAG: 'tag',
+} as const
+
+export const MAX_TAGS_DISPLAY = 5
+
+export const MAX_FILTER_ITEMS = 5
+
+export const SIDEBAR_WIDTH = 'w-64'
+
+export const EXCLUDED_GROUPS = ['', 'auto']
+
+export const QUOTA_TYPE_VALUES = {
+  TOKEN: 0,
+  REQUEST: 1,
+} as const
+
+export const TOKEN_UNIT_DIVISORS = {
+  M: 1,
+  K: 1000,
+} as const
+
+export const DEFAULT_TOKEN_UNIT: TokenUnit = 'M'
+
+export const VIEW_MODES = {
+  CARD: 'card',
+  TABLE: 'table',
+} as const
+
+export type ViewMode = (typeof VIEW_MODES)[keyof typeof VIEW_MODES]
+
+export const DEFAULT_PRICING_PAGE_SIZE = 20
