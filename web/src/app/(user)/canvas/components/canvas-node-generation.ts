@@ -1,15 +1,22 @@
 import type { ChatCompletionMessage } from "@/services/api/image";
+import type { FitReferenceInput } from "@/services/api/fit/values";
+import { isFitConfig } from "@/lib/fit-config";
+import type { ModelProfile } from "@/lib/fit-generate/types";
+import { fitAllowsEmptyPrompt } from "@/lib/fit-panel";
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { seedanceReferenceLabel } from "@/lib/seedance-video";
+import type { WorkflowRef } from "@/lib/workflow-channel";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
-import type { VideoElementItem, VideoElementReference, VideoMultiPromptItem } from "@/stores/use-config-store";
-import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "../types";
+import type { AiConfig, VideoElementItem, VideoElementReference, VideoMultiPromptItem } from "@/stores/use-config-store";
+import { CanvasNodeType, type CanvasConnection, type CanvasGenerationMode, type CanvasNodeData } from "../types";
 import { isCanvasImageNodeType } from "../utils/canvas-panorama";
-import { getGenerationResourceNodes } from "../utils/canvas-resource-references";
+import { buildNodeMentionReferences, getGenerationResourceNodes } from "../utils/canvas-resource-references";
 
 export type NodeGenerationContext = {
     prompt: string;
+    /** 素材节点 id → 提示词里 @ 它用的标签（图片N / 视频N / 音频N），openai.fit 按它把 @ 引用换成同一个素材的写法。 */
+    mentionLabels: Record<string, string>;
     referenceImages: ReferenceImage[];
     firstFrame: ReferenceImage | null;
     lastFrame: ReferenceImage | null;
@@ -33,11 +40,41 @@ export type NodeGenerationInput = {
     audio?: ReferenceAudio;
 };
 
-export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], prompt: string): NodeGenerationContext {
+/**
+ * 组装提示词要不要把素材写成 @图片N：只有 openai.fit 出图、出视频（不走工作流）时，fit 会按 mentionLabels 把它换成同一个素材的写法；
+ * 工作流、文本、语音和其他渠道照旧写「图片N」。
+ */
+export function composerMentionsFor(config: Parameters<typeof isFitConfig>[0], mode: CanvasGenerationMode, workflowRef?: unknown) {
+    return !workflowRef && (mode === "image" || mode === "video") && isFitConfig(config);
+}
+
+/**
+ * 节点按真正提交时的摆法交给 openai.fit 的素材（生成前的 fitPrecheck 和 fitNodeAllowsEmptyPrompt 共用）：
+ * 视频卡片没有首尾帧用途时首尾帧并进参考图；图片节点改图时自己的原图（sourceImages）排在参考图后面。
+ */
+export function fitNodeReferenceInput(profile: ModelProfile, context: NodeGenerationContext, sourceImages: ReferenceImage[] = []): FitReferenceInput {
+    if (profile.kind === "image") return { references: [...context.referenceImages, ...sourceImages] };
+    const frames = profile.roles.some((role) => role !== "reference");
+    const frameImages = [context.firstFrame, context.lastFrame].filter((image): image is ReferenceImage => Boolean(image));
+    return { references: frames ? context.referenceImages : [...context.referenceImages, ...frameImages], firstFrame: frames ? context.firstFrame : null, lastFrame: frames ? context.lastFrame : null, videoReferences: context.referenceVideos, audioReferences: context.referenceAudios };
+}
+
+/**
+ * 图片、视频节点能不能不写提示词、只发连进来的素材（提示词面板的生成按钮和重试都按它）：规则见 fitAllowsEmptyPrompt（fit 5c1c13d 只放行 seedance 2.5-GT），
+ * 素材按 fitNodeReferenceInput 摆，只算连进来、有内容的素材（节点自己的原图不算）。workflowRef 是节点自己的工作流（全局的 videoWorkflowRef 不算），走工作流时不放行；
+ * 卡片还没读到、没有上下文时返回 false，照旧要提示词。
+ */
+export function fitNodeAllowsEmptyPrompt(config: AiConfig, profile: ModelProfile | null, context: NodeGenerationContext | null, workflowRef?: WorkflowRef) {
+    if (!profile || !context) return false;
+    return fitAllowsEmptyPrompt({ ...config, videoWorkflowRef: workflowRef }, profile, fitNodeReferenceInput(profile, context));
+}
+
+/** mentions 见 composerMentionsFor，只影响组装提示词（配置节点的 composerContent）。 */
+export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], prompt: string, mentions: boolean): NodeGenerationContext {
     const inputs = buildNodeGenerationInputs(nodeId, nodes, connections);
     const sourceNode = nodes.find((node) => node.id === nodeId);
     if (sourceNode?.type === CanvasNodeType.Config && Boolean(sourceNode.metadata?.composerContent?.trim())) {
-        return buildComposerGenerationContext(inputs, prompt, sourceNode);
+        return buildComposerGenerationContext(inputs, prompt, mentions, sourceNode);
     }
 
     const advanced = buildCanvasVideoAdvancedContext(sourceNode, inputs);
@@ -52,9 +89,12 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
     const frameReferences = readFrameReferences(sourceNode, inputs);
     const frameNodeIds = new Set([frameReferences.firstFrame?.id, frameReferences.lastFrame?.id].filter((id): id is string => Boolean(id)));
     const effectiveReferenceImages = referenceImages.filter((image) => !frameNodeIds.has(image.id));
+    // 和提示词输入框的 @ 候选同一套编号（按连线顺序数，首尾帧也算；没有输入时是节点自己）
+    const mentionReferences = sourceNode ? buildNodeMentionReferences(sourceNode, nodes, connections) : [];
 
     return {
         prompt: upstreamText ? `${prompt}\n\n${upstreamText}` : prompt,
+        mentionLabels: Object.fromEntries(mentionReferences.filter((reference) => reference.kind !== "text").map((reference) => [reference.nodeId, reference.label])),
         referenceImages: [...advanced.klingImageReferences, ...effectiveReferenceImages],
         firstFrame: frameReferences.firstFrame,
         lastFrame: frameReferences.lastFrame,
@@ -69,7 +109,7 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
     };
 }
 
-function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: string, sourceNode?: CanvasNodeData): NodeGenerationContext {
+function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: string, mentions: boolean, sourceNode?: CanvasNodeData): NodeGenerationContext {
     const advanced = buildCanvasVideoAdvancedContext(sourceNode, inputs);
     const inputByNodeId = new Map(inputs.map((input) => [input.nodeId, input]));
     const selectedInputs: NodeGenerationInput[] = [];
@@ -93,7 +133,8 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
                 if (input.type === "text") textBlocks.push(`【${label}】\n${input.text || ""}`);
                 else selectedInputs.push(input);
             }
-            nextPrompt += input.type === "text" ? `【${label}】` : label;
+            // openai.fit 出图、出视频时素材写成 @图片N（和节点提示词里的 @ 引用同一写法），fit 才能按 mentionLabels 换成同一个素材的写法
+            nextPrompt += input.type === "text" ? `【${label}】` : mentions ? `@${label}` : label;
         }
         lastIndex = match.index + match[0].length;
     }
@@ -110,6 +151,7 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
     if (!hasToken) {
         return {
             prompt,
+            mentionLabels: {},
             referenceImages: advanced.klingImageReferences,
             firstFrame: frameReferences.firstFrame,
             lastFrame: frameReferences.lastFrame,
@@ -126,6 +168,7 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
 
     return {
         prompt: nextPrompt,
+        mentionLabels: Object.fromEntries([...labelByNodeId].filter(([nodeId]) => inputByNodeId.get(nodeId)?.type !== "text")),
         referenceImages: [...advanced.klingImageReferences, ...effectiveReferenceImages],
         firstFrame: frameReferences.firstFrame,
         lastFrame: frameReferences.lastFrame,
@@ -273,7 +316,7 @@ function readReferenceVideo(node: CanvasNodeData): ReferenceVideo | null {
         bytes: node.metadata.bytes,
         width: node.metadata.naturalWidth,
         height: node.metadata.naturalHeight,
-        durationMs: node.metadata.durationMs,
+        durationMs: mediaDurationMs(node),
     };
 }
 
@@ -285,6 +328,26 @@ function readReferenceAudio(node: CanvasNodeData): ReferenceAudio | null {
         type: node.metadata.mimeType || "audio/mpeg",
         url: node.metadata.content,
         storageKey: node.metadata.storageKey,
-        durationMs: node.metadata.durationMs,
+        durationMs: mediaDurationMs(node),
     };
+}
+
+/**
+ * 片长先看 mediaDurationMs（真实片长）。没有时，画布生成的节点（有 startedAt）的 durationMs 记的是生成耗时，不当片长传，
+ * 用到时由 fit/values.ts 读文件实测；上传的素材 durationMs 就是片长。
+ */
+function mediaDurationMs(node: CanvasNodeData) {
+    return node.metadata?.mediaDurationMs ?? (node.metadata?.startedAt ? undefined : node.metadata?.durationMs);
+}
+
+/**
+ * 出片后读一次真实片长，记在任务的 mediaDurationMs 上，随任务一起写进节点（和生成耗时 durationMs 分开）。
+ * 没有成片地址、已经有片长时原样返回；读不出也原样返回，当参考素材时提交前再实测。
+ */
+export async function withMediaDuration<T extends { url?: string; video_url?: string; audio_url?: string; mediaDurationMs?: number }>(task: T, kind: "video" | "audio"): Promise<T> {
+    const url = (kind === "video" ? task.video_url : task.audio_url) || task.url;
+    if (!url || task.mediaDurationMs) return task;
+    const { readMediaDurationMs } = await import("@/services/file-storage");
+    const mediaDurationMs = await readMediaDurationMs(url, kind);
+    return mediaDurationMs ? { ...task, mediaDurationMs } : task;
 }

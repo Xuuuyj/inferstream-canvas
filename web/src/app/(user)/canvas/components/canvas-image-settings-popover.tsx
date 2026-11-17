@@ -5,8 +5,10 @@ import { createPortal } from "react-dom";
 import { Settings2 } from "lucide-react";
 import { Button } from "antd";
 
+import { useFitPanel } from "@/components/fit-video-settings-panel";
 import { ImageSettingsPanel, imageQualityLabel, imageSizeLabel } from "@/components/image-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { fitPanelSummary } from "@/lib/fit-panel";
 import { isKIESeedreamLayerDecompositionModel } from "@/lib/kie-models";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { AiConfig } from "@/stores/use-config-store";
@@ -37,6 +39,8 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
     const layerDecomposition = isKIESeedreamLayerDecompositionModel(config.model);
     const effectiveShowSize = showSize && !layerDecomposition;
     const effectiveShowCount = showCount && !layerDecomposition;
+    const fit = useFitPanel(config.model, config);
+    const fitSummary = fit.profile && fit.values ? fitPanelSummary(fit.profile, fit.values) : "";
     const updateOpen = (nextOpen: boolean) => {
         setOpen(nextOpen);
         onOpenChange?.(nextOpen);
@@ -74,7 +78,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
                     <span className="truncate">
                         {effectiveShowSize ? (
                             <>
-                                {imageQualityLabel(quality)} · {imageSizeLabel(activeSize)}
+                                {fitSummary || <>{imageQualityLabel(quality)} · {imageSizeLabel(activeSize)}</>}
                                 {effectiveShowCount ? <> · {count} 张</> : null}
                             </>
                         ) : (
@@ -140,7 +144,7 @@ function ImageSettingsPortal({
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
         >
-            <ImageSettingsPanel config={config} onConfigChange={(key, value) => onConfigChange(key, value)} theme={theme} className="space-y-4" showSize={showSize} showCount={showCount} />
+            <ImageSettingsPanel config={config} modelName={config.model} onConfigChange={(key, value) => onConfigChange(key, value)} theme={theme} className="space-y-4" showSize={showSize} showCount={showCount} />
         </div>,
         document.body,
     );

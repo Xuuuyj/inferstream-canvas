@@ -9,7 +9,9 @@ import { readZip } from "@/lib/zip";
 import { setMediaBlob } from "@/services/file-storage";
 import { setImageBlob } from "@/services/image-storage";
 import { CanvasDeleteProjectsDialog } from "./components/canvas-delete-projects-dialog";
+import { CanvasLocalFolderButton } from "./components/canvas-local-folder";
 import { CanvasProjectCard } from "./components/canvas-project-card";
+import { CanvasTabGuard } from "./components/canvas-tab-guard";
 import type { CanvasExportFile } from "./export-types";
 import { useCanvasStore } from "./stores/use-canvas-store";
 import { useCanvasUiStore } from "./stores/use-canvas-ui-store";
@@ -63,6 +65,7 @@ export default function CanvasPage() {
                     <div>
                         <p className="text-xs text-stone-500">画布库</p>
                         <h1 className="mt-3 text-3xl font-semibold">无限画布</h1>
+                        <p className="mt-3 max-w-xl text-xs leading-5 text-stone-500">画布里的图片、视频、音频保存在这台电脑的这个浏览器里，清浏览器数据、浏览器空间不够时可能被清掉。建议点「设置本地素材文件夹」，素材会同时存到你电脑上的文件夹里（Chrome、Edge 支持）；重要的画布也可以勾选后点「导出选中」备份（素材一起打包），用「导入画布」恢复。同一时间只在一个标签页里打开画布。</p>
                     </div>
                     <div className="flex items-center gap-2">
                         {selectedIds.length ? (
@@ -80,6 +83,7 @@ export default function CanvasPage() {
                                 删除全部
                             </Button>
                         ) : null}
+                        <CanvasLocalFolderButton disabled={!hydrated} />
                         <Button disabled={!hydrated} icon={<FileUp className="size-4" />} onClick={() => inputRef.current?.click()}>
                             导入画布
                         </Button>
@@ -110,6 +114,7 @@ export default function CanvasPage() {
 
             <input ref={inputRef} type="file" accept="application/zip,.zip" className="hidden" onChange={(event) => void importCanvas(event.target.files?.[0])} />
             <CanvasDeleteProjectsDialog />
+            <CanvasTabGuard />
         </main>
     );
 }

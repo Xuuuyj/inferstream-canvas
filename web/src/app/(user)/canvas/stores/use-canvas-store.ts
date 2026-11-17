@@ -2,9 +2,11 @@ import { create } from "zustand";
 import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
 
 import { nanoid } from "nanoid";
+import { isCanvasTabSuperseded } from "@/lib/canvas-tab-guard";
 import { localForageStorage } from "@/lib/localforage-storage";
-import { deleteImagePreviews } from "@/services/image-storage";
+import { STORAGE_SYNC_FAILED_EVENT, deleteImagePreviews } from "@/services/image-storage";
 import { listCanvasProjects, saveCanvasProject, syncCanvasProjects } from "@/services/api/canvas-tasks";
+import { saveRetryDelayMs } from "@/services/api/request";
 import { fetchUserConfig } from "@/services/api/user-config";
 import { useUserStore } from "@/stores/use-user-store";
 import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
@@ -51,7 +53,7 @@ type CanvasStore = {
 };
 
 const initialViewport: ViewportTransform = { x: 0, y: 0, k: 1 };
-const CANVAS_STORE_KEY = "infinite-canvas:canvas_store";
+export const CANVAS_STORE_KEY = "infinite-canvas:canvas_store";
 type PersistedCanvasState = Pick<CanvasStore, "projects">;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let queuedPersistState: PersistedCanvasState | null = null;
@@ -59,6 +61,11 @@ let accountCanvasSyncEnabled = false;
 const projectSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const pendingProjectSaves = new Map<string, { token: string; project: CanvasProject }>();
 const savingProjects = new Set<string>();
+const PROJECT_SAVE_DEBOUNCE_MS = 2000;
+const PROJECT_SAVE_MAX_BACKOFF_MS = 60_000;
+// 画布保存接口按账号限流，所有画布共用一个额度：429 后全部画布都等到这个时间点再发。
+let projectSaveBlockedUntil = 0;
+let projectSaveBackoffMs = 0;
 
 function waitForUserStoreHydration() {
     if (useUserStore.persist.hasHydrated()) return Promise.resolve();
@@ -79,32 +86,63 @@ function waitForUserStoreHydration() {
 async function flushProjectSave(id: string) {
     if (savingProjects.has(id) || projectSaveTimers.has(id)) return;
     const pending = pendingProjectSaves.get(id);
-    pendingProjectSaves.delete(id);
-    if (!pending || !accountCanvasSyncEnabled || useUserStore.getState().token !== pending.token) return;
+    if (!pending) return;
+    if (!accountCanvasSyncEnabled || useUserStore.getState().token !== pending.token) {
+        pendingProjectSaves.delete(id);
+        return;
+    }
+    if (Date.now() < projectSaveBlockedUntil) {
+        scheduleProjectSave(id, 0);
+        return;
+    }
 
+    pendingProjectSaves.delete(id);
     savingProjects.add(id);
-    await saveCanvasProject(pending.token, pending.project).catch(() => undefined);
-    savingProjects.delete(id);
+    try {
+        await saveCanvasProject(pending.token, pending.project);
+        projectSaveBackoffMs = 0;
+    } catch (error) {
+        projectSaveBackoffMs = Math.min(PROJECT_SAVE_MAX_BACKOFF_MS, Math.max(5000, projectSaveBackoffMs * 2));
+        const delay = saveRetryDelayMs(error, projectSaveBackoffMs);
+        const { hydrated, projects } = useCanvasStore.getState();
+        if (useUserStore.getState().token !== pending.token) {
+            // 保存途中退出或换了账号：这一版不再发。
+        } else if (delay === null) {
+            console.error("Failed to save canvas project", error);
+            window.dispatchEvent(new CustomEvent(STORAGE_SYNC_FAILED_EVENT, { detail: `画布「${pending.project.title}」保存失败${error instanceof Error ? `：${error.message}` : ""}` }));
+        } else if (!hydrated || projects.some((project) => project.id === id)) {
+            // 429、断网、5xx：等一会儿重发；等待期间又改过就发最新的那版，画布已删除就不再发。
+            if (!pendingProjectSaves.has(id)) pendingProjectSaves.set(id, pending);
+            projectSaveBlockedUntil = Math.max(projectSaveBlockedUntil, Date.now() + delay);
+            scheduleProjectSave(id, delay);
+        }
+    } finally {
+        savingProjects.delete(id);
+    }
     void flushProjectSave(id);
 }
 
-function queueProjectSave(project: CanvasProject) {
-    const token = useUserStore.getState().token;
-    const previous = projectSaveTimers.get(project.id);
+function scheduleProjectSave(id: string, delayMs: number) {
+    const previous = projectSaveTimers.get(id);
     if (previous) clearTimeout(previous);
-    projectSaveTimers.delete(project.id);
+    projectSaveTimers.set(
+        id,
+        setTimeout(() => {
+            projectSaveTimers.delete(id);
+            void flushProjectSave(id);
+        }, Math.max(delayMs, projectSaveBlockedUntil - Date.now())),
+    );
+}
+
+function queueProjectSave(project: CanvasProject) {
+    if (isCanvasTabSuperseded()) return;
+    const token = useUserStore.getState().token;
     if (!token || !accountCanvasSyncEnabled) {
-        pendingProjectSaves.delete(project.id);
+        cancelProjectSaves([project.id]);
         return;
     }
     pendingProjectSaves.set(project.id, { token, project });
-    projectSaveTimers.set(
-        project.id,
-        setTimeout(() => {
-            projectSaveTimers.delete(project.id);
-            void flushProjectSave(project.id);
-        }, 400),
-    );
+    scheduleProjectSave(project.id, PROJECT_SAVE_DEBOUNCE_MS);
 }
 
 function cancelProjectSaves(ids: string[]) {
@@ -230,6 +268,8 @@ const canvasStorage: PersistStorage<CanvasStore> = {
     },
 
     setItem: (name, value) => {
+        // 另一个画布页面打开后本页不再存盘，免得拿本页的旧项目盖掉那边的改动（lib/canvas-tab-guard.ts）
+        if (isCanvasTabSuperseded()) return;
         const nextState = value.state as PersistedCanvasState;
         if (
             queuedPersistState &&
@@ -241,6 +281,7 @@ const canvasStorage: PersistStorage<CanvasStore> = {
         if (saveTimer) clearTimeout(saveTimer);
         saveTimer = setTimeout(() => {
             saveTimer = null;
+            if (isCanvasTabSuperseded()) return;
             void localForageStorage.setItem(name, JSON.stringify(value));
         }, 400);
     },
@@ -356,7 +397,7 @@ export const useCanvasStore = create<CanvasStore>()(
             },
             syncWithRemote: async (token, syncEnabled) => {
                 accountCanvasSyncEnabled = syncEnabled;
-                if (!syncEnabled) return;
+                if (!syncEnabled || isCanvasTabSuperseded()) return;
                 const localProjects = get().projects;
                 const remoteProjects = await listCanvasProjects(token).catch(
                     () => null,

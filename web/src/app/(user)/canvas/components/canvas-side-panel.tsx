@@ -8,6 +8,8 @@ import { BookOpen, ChevronRight, Clapperboard, Eye, FileText, Group, Image as Im
 import { motion } from "motion/react";
 
 import { AssetFormModal } from "@/components/assets/asset-form-modal";
+import { DIRECTOR_ENABLED } from "@/constant/features";
+import { PromptCover } from "@/components/prompts/prompt-cover";
 import { PromptDetailDialog } from "@/components/prompts/prompt-detail-dialog";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { canvasThemes, type CanvasTheme } from "@/lib/canvas-theme";
@@ -75,7 +77,7 @@ const NODE_FILTER_OPTIONS = [
     { label: "配置", value: CanvasNodeType.Config },
     { label: "视频", value: CanvasNodeType.Video },
     { label: "音频", value: CanvasNodeType.Audio },
-    { label: "导演台", value: CanvasNodeType.Director },
+    ...(DIRECTOR_ENABLED ? [{ label: "导演台", value: CanvasNodeType.Director }] : []),
     { label: "组", value: CanvasNodeType.Group },
 ];
 
@@ -528,7 +530,7 @@ function PromptGroup({ category, keyword, open, theme, onToggle, onView, onInser
 function PromptRow({ item, theme, onView, onInsert }: { item: Prompt; theme: CanvasTheme; onView: () => void; onInsert: () => void }) {
     return (
         <div className="group relative flex items-center gap-2.5 rounded-lg px-2 py-2 transition hover:bg-black/5 dark:hover:bg-white/5">
-            {item.coverUrl ? <img src={item.coverUrl} alt="" className="size-10 shrink-0 rounded-md object-cover" loading="lazy" /> : <span className="grid size-10 shrink-0 place-items-center rounded-md" style={{ background: theme.node.panel }}><FileText className="size-4 opacity-50" /></span>}
+            <PromptCover src={item.coverUrl} alt="" className="size-10 shrink-0 rounded-md object-cover" fallback={<span className="grid size-10 shrink-0 place-items-center rounded-md" style={{ background: theme.node.panel }}><FileText className="size-4 opacity-50" /></span>} />
             <button type="button" onClick={onView} className="min-w-0 flex-1 text-left">
                 <span className="block truncate text-sm font-medium leading-snug">{item.title}</span>
                 <span className="mt-0.5 block truncate text-xs leading-snug opacity-50">{item.prompt}</span>

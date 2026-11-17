@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { Button, Segmented, Switch } from "antd";
 import { CircleDot, Eraser, FolderOpen, Globe2, Grid2x2, Hand, Image as ImageIcon, Info, Layers3, Library, Moon, MousePointer2, Music2, Palette, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
 
+import { DIRECTOR_ENABLED } from "@/constant/features";
 import { canvasThemes, type CanvasBackgroundMode, type CanvasColorTheme, type CanvasTheme } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
@@ -98,9 +99,11 @@ export function CanvasToolbar({
                 <ToolbarButton id="tool-panorama" label="全景图" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddPanorama}>
                     <Globe2 className="size-4.5" />
                 </ToolbarButton>
-                <ToolbarButton id="tool-director" label="导演台" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddDirector}>
-                    <Layers3 className="size-4.5" />
-                </ToolbarButton>
+                {DIRECTOR_ENABLED ? (
+                    <ToolbarButton id="tool-director" label="导演台" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddDirector}>
+                        <Layers3 className="size-4.5" />
+                    </ToolbarButton>
+                ) : null}
                 <ToolbarButton id="tool-config" label="生成配置" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddConfig}>
                     <Settings2 className="size-4.5" />
                 </ToolbarButton>

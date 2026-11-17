@@ -1,7 +1,8 @@
 "use client";
 
 import { downloadRemoteMedia } from "@/services/file-storage";
-import { getProxyUrl } from "@/services/image-storage";
+import { MEDIA_PROXY_LOGIN_REQUIRED, getProxyUrl, isFitMediaUrl } from "@/services/image-storage";
+import { useUserStore } from "@/stores/use-user-store";
 
 export type VideoFramePosition = "first" | "last" | "current";
 
@@ -9,7 +10,9 @@ export async function captureVideoFrame(source: string, position: VideoFramePosi
     try {
         return await captureFrameDirect(source, position, currentTime);
     } catch (error) {
-        if (getProxyUrl(source) === source) throw error;
+        // 本地、同源地址截不出就是截不出；openai.fit 的成片退到签名链接时会 302 到没加跨域规则的 OSS，和其他远程地址一样登录后经代理下载到本地再截
+        if (getProxyUrl(source) === source && !isFitMediaUrl(source)) throw error;
+        if (!useUserStore.getState().token) throw new Error(MEDIA_PROXY_LOGIN_REQUIRED);
 
         const localUrl = URL.createObjectURL(await downloadRemoteMedia(source));
         try {

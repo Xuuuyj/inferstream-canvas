@@ -5,9 +5,13 @@ import { createPortal } from "react-dom";
 import { FileText, Image as ImageIcon, Music2, Plus, Settings2, Trash2, Video as VideoIcon, X } from "lucide-react";
 import { Button, Input, Switch } from "antd";
 
+import { useFitPanel } from "@/components/fit-video-settings-panel";
 import { VideoSettingsPanel, isAPIMartKlingMotionControlConfig, isKIEKlingMotionControlConfig, isAPIMartKlingV3Config, isKIEKlingV3Config, kieKlingOmniVariant, videoResolutionLabel, videoSecondsLabel, videoSizeLabel } from "@/components/video-settings-panel";
+import { useFitProfile } from "@/hooks/use-fit-profile";
 import { isAutoDLConfig } from "@/lib/autodl";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { isFitConfig } from "@/lib/fit-config";
+import { fitPanelSummary } from "@/lib/fit-panel";
 import { modelKey, supportsVideoFrameReferences } from "@/lib/video-model-capabilities";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { channelProtocolForConfig, type AiConfig } from "@/stores/use-config-store";
@@ -40,6 +44,7 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, frameOption
     const [buttonRect, setButtonRect] = useState<DOMRect | null>(null);
     const model = visualOnly ? config.videoModel || config.model : config.model || config.videoModel;
     const autodl = isAutoDLConfig(config, model);
+    const fit = useFitPanel(model, config);
 
     useEffect(() => {
         if (!open) return;
@@ -70,8 +75,14 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, frameOption
             <span ref={buttonRef} className="inline-flex min-w-0">
                 <Button size="small" type="text" className={buttonClassName || "!h-8 !max-w-[170px] !justify-start !rounded-full !px-2.5"} style={{ background: theme.node.fill, color: theme.node.text }} icon={buttonIcon || <Settings2 className="size-3.5" />} onClick={() => setOpen((current) => !current)}>
                     <span className="truncate">
-                        {videoResolutionLabel(config.vquality)} · {videoSizeLabel(config.size)}
-                        {visualOnly ? null : <> · {videoSecondsLabel(config.videoSeconds)}</>}
+                        {fit.profile && fit.values ? (
+                            fitPanelSummary(fit.profile, fit.values, !visualOnly)
+                        ) : (
+                            <>
+                                {videoResolutionLabel(config.vquality)} · {videoSizeLabel(config.size)}
+                                {visualOnly ? null : <> · {videoSecondsLabel(config.videoSeconds)}</>}
+                            </>
+                        )}
                     </span>
                 </Button>
             </span>
@@ -95,7 +106,8 @@ function VideoSettingsPortal({ buttonRect, panelRef, placement, theme, config, o
     const kieKlingOmni = kieKlingOmniVariant(config, model);
     const isKlingMotionControl = isAPIMartKlingMotionControlConfig(config, model) || isKIEKlingMotionControlConfig(config, model) || (channelProtocolForConfig({ ...config, model, videoModel: model }) === "tokendance" && modelKey(model) === "kling-3-0");
     const isKlingV3 = isAPIMartKlingV3 || isKIEKlingV3;
-    const frameReferencesEnabled = !isKlingV3 && supportsVideoFrameReferences(model, channelProtocolForConfig({ ...config, model }));
+    const fitProfile = useFitProfile(model);
+    const frameReferencesEnabled = isFitConfig(config) ? Boolean(fitProfile?.roles.some((role) => role !== "reference")) : !isKlingV3 && supportsVideoFrameReferences(model, channelProtocolForConfig({ ...config, model }));
     const optionIds = useMemo(() => new Set(frameOptions.map((item) => item.nodeId)), [frameOptions]);
     const firstFrameValue = firstFrameNodeId && optionIds.has(firstFrameNodeId) ? firstFrameNodeId : "";
     const lastFrameValue = lastFrameNodeId && optionIds.has(lastFrameNodeId) ? lastFrameNodeId : "";
@@ -109,8 +121,8 @@ function VideoSettingsPortal({ buttonRect, panelRef, placement, theme, config, o
                 {!visualOnly && frameReferencesEnabled ? (
                     <CanvasSettingGroup title="首尾帧" color={theme.node.muted}>
                         <div className="grid gap-2 rounded-xl border p-2.5" style={{ borderColor: theme.node.stroke }}>
-                            <FrameReferencePicker label="首帧" value={firstFrameValue} options={frameOptions} theme={theme} onChange={(value) => onFrameChange?.({ firstFrameNodeId: value || undefined })} />
-                            <FrameReferencePicker label="尾帧" value={lastFrameValue} options={frameOptions} theme={theme} onChange={(value) => onFrameChange?.({ lastFrameNodeId: value || undefined })} />
+                            {!fitProfile || fitProfile.roles.includes("first_frame") ? <FrameReferencePicker label={fitProfile?.requiresFirstFrame ? "首帧（必填）" : "首帧"} value={firstFrameValue} options={frameOptions} theme={theme} onChange={(value) => onFrameChange?.({ firstFrameNodeId: value || undefined })} /> : null}
+                            {!fitProfile || fitProfile.roles.includes("last_frame") ? <FrameReferencePicker label="尾帧" value={lastFrameValue} options={frameOptions} theme={theme} onChange={(value) => onFrameChange?.({ lastFrameNodeId: value || undefined })} /> : null}
                         </div>
                     </CanvasSettingGroup>
                 ) : null}

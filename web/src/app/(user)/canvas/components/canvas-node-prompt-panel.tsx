@@ -6,9 +6,10 @@ import { Button, Modal, Tooltip } from "antd";
 
 import { ModelPicker } from "@/components/model-picker";
 import { useAutoDLWorkflow } from "@/hooks/use-autodl-workflow";
+import { useFitProfile } from "@/hooks/use-fit-profile";
 import { getAutoDLCapabilities, isAutoDLConfig } from "@/lib/autodl";
+import { isFitConfig } from "@/lib/fit-config";
 import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
-import { CreditSymbol, requestCreditCost } from "@/constant/credits";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
@@ -18,6 +19,7 @@ import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas
 import { CanvasPromptChipInput } from "./canvas-prompt-chip-input";
 import { CanvasNodeReferenceBar } from "./canvas-node-reference-bar";
 import { CanvasVideoSettingsPopover, type CanvasVideoFrameOption, type CanvasVideoResourceOption } from "./canvas-video-settings-popover";
+import { fitNodeAllowsEmptyPrompt, type NodeGenerationContext } from "./canvas-node-generation";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata } from "../types";
 import { PANORAMA_IMAGE_SIZE, isCanvasImageNodeType, isPanoramaNodeType } from "../utils/canvas-panorama";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
@@ -39,12 +41,13 @@ type CanvasNodePromptPanelProps = {
     onStartReferenceSelection?: (nodeId: string) => void;
     videoFrameOptions?: CanvasVideoFrameOption[];
     videoResourceOptions?: CanvasVideoResourceOption[];
+    /** 图片、视频节点连进来的素材（buildNodeGenerationContext），判断能不能不写提示词（fitNodeAllowsEmptyPrompt）。 */
+    fitContext?: NodeGenerationContext;
     onImageSettingsOpenChange?: (open: boolean) => void;
 };
 
-export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], connectedNodes = [], videoFrameOptions = [], videoResourceOptions = [], onDisconnectReference, onStartReferenceSelection, onImageSettingsOpenChange }: CanvasNodePromptPanelProps) {
+export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], connectedNodes = [], videoFrameOptions = [], videoResourceOptions = [], fitContext, onDisconnectReference, onStartReferenceSelection, onImageSettingsOpenChange }: CanvasNodePromptPanelProps) {
     const globalConfig = useEffectiveConfig();
-    const modelCosts = useConfigStore((state) => state.publicSettings?.modelChannel.modelCosts);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const mode = defaultMode(node.type);
@@ -55,7 +58,12 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const mediaLoading = (isCanvasImageNodeType(node.type) || node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio || textOverwrite) && node.metadata?.status === "loading";
     const isStopping = node.metadata?.status === "stopping";
     const stopFailed = isStopping && Boolean(node.metadata?.errorDetails);
-    const canStop = Boolean(node.metadata?.clientTaskId) && !node.metadata?.isBatchRoot && (mediaLoading || stopFailed);
+    // openai.fit 没有取消接口，「停止」只是画布不再等：照常生成、照常扣费，结果却回不到画布上。生成中这颗按钮原来会变成停止，
+    // 用户连点两下就成了「停止 → 再生成」，扣两次费、第一条看不到（2026-11-11）。fit 已经收下（节点上有 fit 任务号）的视频不给停止，等出结果；
+    // 还在提交（只有画布自己的 client_ 号）时照旧能停：页面刷新打断的提交只能这样解开，停的时候 fit 已经收下的任务会放回画布（orphanedFitVideos）
+    const videoTaskId = node.metadata?.videoTaskId || "";
+    const fitVideoRunning = node.type === CanvasNodeType.Video && !node.metadata?.workflowRef && isFitConfig(config) && Boolean(videoTaskId) && !videoTaskId.startsWith("client_");
+    const canStop = !fitVideoRunning && Boolean(node.metadata?.clientTaskId) && !node.metadata?.isBatchRoot && (mediaLoading || stopFailed);
     const generating = (isRunning && node.metadata?.status !== "stopped") || mediaLoading;
     const showStop = canStop || isStopping;
     const hasTextContent = node.type === CanvasNodeType.Text && Boolean(node.metadata?.content?.trim());
@@ -63,11 +71,6 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const sourcePrompt = isPanorama ? node.metadata?.panoramaSourcePrompt || "" : node.metadata?.prompt || "";
     const [prompt, setPrompt] = useState(sourcePrompt);
     const [expanded, setExpanded] = useState(false);
-    const workflowRef = node.metadata?.workflowRef;
-    const billingModel = workflowRef
-        ? `workflow:${workflowRef.scope}:${workflowRef.channelId}:${workflowRef.kind}:${workflowRef.workflowId}`
-        : config.model;
-    const credits = requestCreditCost({ channelMode: config.channelMode, modelCosts, model: billingModel, resolution: mode === "video" ? config.vquality : undefined, count: mode === "image" ? config.count : 1, seconds: mode === "video" ? config.videoSeconds : undefined });
 
     useEffect(() => {
         setPrompt(sourcePrompt);
@@ -78,7 +81,9 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
         onPromptChange(node.id, value);
     };
 
-    const canSubmit = node.metadata?.status === "stopped" || Boolean(prompt.trim()) || (mode !== "text" && Boolean(node.metadata?.workflowRef)) || (mode === "video" && isAutoDLConfig(config) && getAutoDLCapabilities(autodlWorkflow)?.promptRequired === false) || (isPanorama && (hasImageContent || mentionReferences.length > 0));
+    // openai.fit 的卡片允许只发素材时（fit 5c1c13d 只有 seedance 2.5-GT），连进来有素材就能不写提示词生成；点生成后照常走 fitPrecheck
+    const fitProfile = useFitProfile(fitContext && !node.metadata?.workflowRef ? config.model : undefined);
+    const canSubmit = node.metadata?.status === "stopped" || Boolean(prompt.trim()) || (mode !== "text" && Boolean(node.metadata?.workflowRef)) || (mode === "video" && isAutoDLConfig(config) && getAutoDLCapabilities(autodlWorkflow)?.promptRequired === false) || (isPanorama && (hasImageContent || mentionReferences.length > 0)) || fitNodeAllowsEmptyPrompt(config, fitProfile, fitContext ?? null, node.metadata?.workflowRef);
 
     const submit = () => {
         const text = prompt.trim();
@@ -114,7 +119,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     <CanvasPromptLibrary onSelect={updatePrompt} />
                     {mode === "image" ? (
                         <>
-                            <ModelPicker className="!w-[180px] !min-w-0 !shrink-0" config={config} value={config.model} channelId={config.imageChannelId} workflowRef={node.metadata?.workflowRef} onWorkflowChange={(workflowRef) => onConfigChange(node.id, { workflowRef })} onChange={(model, channelId) => onConfigChange(node.id, { model, channelId })} capability="image" onMissingConfig={() => openConfigDialog(true)} />
+                            <ModelPicker className="!h-10 !w-[180px] !min-w-0 !shrink-0" config={config} value={config.model} channelId={config.imageChannelId} workflowRef={node.metadata?.workflowRef} onWorkflowChange={(workflowRef) => onConfigChange(node.id, { workflowRef })} onChange={(model, channelId) => onConfigChange(node.id, { model, channelId })} capability="image" onMissingConfig={() => openConfigDialog(true)} />
                             <CanvasImageSettingsPopover
                                 config={node.metadata?.workflowRef ? { ...config, model: "" } : config}
                                 placement="topLeft"
@@ -127,16 +132,16 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                         </>
                     ) : mode === "video" ? (
                         <>
-                            <ModelPicker className="!w-[180px] !min-w-0 !shrink-0" config={config} value={config.model} channelId={config.videoChannelId} workflowRef={node.metadata?.workflowRef} onWorkflowChange={(workflowRef) => onConfigChange(node.id, { workflowRef })} onChange={(model, channelId) => onConfigChange(node.id, { model, channelId })} capability="video" onMissingConfig={() => openConfigDialog(true)} />
+                            <ModelPicker className="!h-10 !w-[180px] !min-w-0 !shrink-0" config={config} value={config.model} channelId={config.videoChannelId} workflowRef={node.metadata?.workflowRef} onWorkflowChange={(workflowRef) => onConfigChange(node.id, { workflowRef })} onChange={(model, channelId) => onConfigChange(node.id, { model, channelId })} capability="video" onMissingConfig={() => openConfigDialog(true)} />
                             <CanvasVideoSettingsPopover config={config} buttonClassName="!h-10 !w-[148px] !shrink-0 !justify-start !rounded-full !px-3" frameOptions={videoFrameOptions} resourceOptions={videoResourceOptions} metadata={node.metadata} firstFrameNodeId={node.metadata?.firstFrameNodeId} lastFrameNodeId={node.metadata?.lastFrameNodeId} onFrameChange={(patch) => onConfigChange(node.id, patch)} onMetadataChange={(patch) => onConfigChange(node.id, patch)} onConfigChange={(key, value) => onConfigChange(node.id, videoConfigPatch(key, value))} />
                         </>
                     ) : mode === "audio" ? (
                         <>
-                            <ModelPicker className="!w-[180px] !min-w-0 !shrink-0" config={config} value={config.model} channelId={config.audioChannelId || config.activeChannelId} workflowRef={node.metadata?.workflowRef} onWorkflowChange={(workflowRef) => onConfigChange(node.id, { workflowRef })} onChange={(model, channelId) => onConfigChange(node.id, { model, channelId })} capability="audio" onMissingConfig={() => openConfigDialog(true)} />
+                            <ModelPicker className="!h-10 !w-[180px] !min-w-0 !shrink-0" config={config} value={config.model} channelId={config.audioChannelId || config.activeChannelId} workflowRef={node.metadata?.workflowRef} onWorkflowChange={(workflowRef) => onConfigChange(node.id, { workflowRef })} onChange={(model, channelId) => onConfigChange(node.id, { model, channelId })} capability="audio" onMissingConfig={() => openConfigDialog(true)} />
                             <CanvasAudioSettingsPopover config={config} resourceOptions={videoResourceOptions} metadata={node.metadata} onMetadataChange={(patch) => onConfigChange(node.id, patch)} buttonClassName="!h-10 !w-[148px] !shrink-0 !justify-start !rounded-full !px-3" onConfigChange={(key, value) => onConfigChange(node.id, audioConfigPatch(key, value))} />
                         </>
                     ) : (
-                        <ModelPicker config={config} value={config.model} channelId={config.textChannelId} onChange={(model, channelId) => onConfigChange(node.id, { model, channelId })} capability="text" onMissingConfig={() => openConfigDialog(true)} />
+                        <ModelPicker className="!h-10" config={config} value={config.model} channelId={config.textChannelId} onChange={(model, channelId) => onConfigChange(node.id, { model, channelId })} capability="text" onMissingConfig={() => openConfigDialog(true)} />
                     )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -149,11 +154,10 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     className="!h-10 !min-w-16 shrink-0 !rounded-full !px-3"
                     disabled={(isStopping && !stopFailed) || (!canStop && (generating || !canSubmit))}
                     onClick={canStop ? () => onStop(node.id) : submit}
-                    aria-label={canStop ? stopFailed ? "重试停止" : "停止" : isStopping ? "停止中" : "生成"}
+                    aria-label={canStop ? stopFailed ? "重试停止" : "停止" : isStopping ? "停止中" : generating ? "生成中" : "生成"}
                 >
                     <span className="relative inline-flex">
                         <span className={`flex items-center gap-1.5${showStop ? " invisible" : ""}`}>
-                            <span className="inline-flex items-center gap-1 text-xs font-medium tabular-nums"><CreditSymbol />{credits.toLocaleString()}</span>
                             {generating ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
                         </span>
                         {showStop ? <span className="absolute inset-0 flex items-center justify-center">
@@ -204,6 +208,7 @@ function buildNodeConfig(globalConfig: AiConfig, node: CanvasNodeData, mode: Can
         size: isPanoramaNodeType(node.type) ? PANORAMA_IMAGE_SIZE : node.metadata?.size || (mode === "video" ? globalConfig.videoSize || defaultConfig.videoSize : globalConfig.size || defaultConfig.size),
         videoSeconds: isAutoDLConfig({ ...globalConfig, activeChannelId, videoChannelId }, node.metadata?.model || defaultModel) ? node.metadata?.seconds ?? globalConfig.videoSeconds : node.metadata?.seconds || globalConfig.videoSeconds || defaultConfig.videoSeconds,
         vquality: node.metadata?.vquality || globalConfig.vquality || defaultConfig.vquality,
+        fitAdvanced: node.metadata?.fitAdvanced || globalConfig.fitAdvanced,
         videoMode: node.metadata?.mode || globalConfig.videoMode || defaultConfig.videoMode,
         videoNegativePrompt: node.metadata?.negativePrompt || globalConfig.videoNegativePrompt || defaultConfig.videoNegativePrompt,
         videoMultiShot: node.metadata?.multiShot || globalConfig.videoMultiShot || defaultConfig.videoMultiShot,

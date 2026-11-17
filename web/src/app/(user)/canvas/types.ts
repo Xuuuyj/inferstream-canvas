@@ -33,6 +33,8 @@ export type CameraControlOptions = {
 };
 
 export type CanvasNodeMetadata = {
+    /** 这个节点的 openai.fit 卡片高级参数（见 AiConfig.fitAdvanced）。 */
+    fitAdvanced?: Record<string, boolean | number | string>;
     content?: string;
     groupId?: string;
     composerContent?: string;
@@ -90,6 +92,8 @@ export type CanvasNodeMetadata = {
     mimeType?: string;
     bytes?: number;
     durationMs?: number;
+    /** 音视频的真实片长（毫秒）。生成出来的节点 durationMs 记的是生成耗时，片长看这个。 */
+    mediaDurationMs?: number;
     startedAt?: number;
     progress?: number;
     clientTaskId?: string;
@@ -101,6 +105,8 @@ export type CanvasNodeMetadata = {
     videoTaskId?: string;
     videoTaskVideoId?: string;
     videoTaskTranslation?: import("@/services/api/video").VideoResponse["translationSnapshot"];
+    /** 提交视频任务时用的 openai.fit 令牌（"manual" 或 "t:<令牌 id>"，不是密钥本身），轮询和下载成片用同一把。 */
+    videoTaskFitKeyRef?: string;
     firstFrameNodeId?: string;
     lastFrameNodeId?: string;
     multiShot?: string;
