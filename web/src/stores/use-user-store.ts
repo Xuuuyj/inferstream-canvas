@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-import { AUTH_TOKEN_KEY, fetchCurrentUser, login, register, type AuthPayload, type AuthUser } from "@/services/api/auth";
+import { AUTH_TOKEN_KEY, adminLogin, fetchCurrentUser, login, loginWithFit, register, type AuthPayload, type AuthUser, type FitLoginPayload } from "@/services/api/auth";
 
 type UserStore = {
     token: string;
@@ -14,6 +14,8 @@ type UserStore = {
     clearSession: () => void;
     hydrateUser: () => Promise<void>;
     login: (payload: AuthPayload) => Promise<AuthUser>;
+    loginWithFit: (payload: FitLoginPayload) => Promise<AuthUser>;
+    adminLogin: (payload: AuthPayload) => Promise<AuthUser>;
     register: (payload: AuthPayload) => Promise<AuthUser>;
 };
 
@@ -48,6 +50,28 @@ export const useUserStore = create<UserStore>()(
                 set({ isLoading: true });
                 try {
                     const session = await login(payload);
+                    set({ token: session.token, user: session.user, isReady: true, isLoading: false });
+                    return session.user;
+                } catch (error) {
+                    set({ isLoading: false });
+                    throw error;
+                }
+            },
+            loginWithFit: async (payload) => {
+                set({ isLoading: true });
+                try {
+                    const session = await loginWithFit(payload);
+                    set({ token: session.token, user: session.user, isReady: true, isLoading: false });
+                    return session.user;
+                } catch (error) {
+                    set({ isLoading: false });
+                    throw error;
+                }
+            },
+            adminLogin: async (payload) => {
+                set({ isLoading: true });
+                try {
+                    const session = await adminLogin(payload);
                     set({ token: session.token, user: session.user, isReady: true, isLoading: false });
                     return session.user;
                 } catch (error) {
