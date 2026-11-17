@@ -1,0 +1,147 @@
+{
+    "seedance-2.0-mini-super": {
+        "transport": "json",
+        "path": "/v1/videos",
+        "body": {
+            "model": "seedance-2.0-mini-super",
+            "prompt": "漫剧分镜：穿灰色衬衫的女孩走进校门，回头微笑，镜头缓慢推进。",
+            "seconds": 15,
+            "resolution": "720p",
+            "ratio": "16:9",
+            "image_urls": [
+                "https://openai.fit/v1/uploads/image-1",
+                "https://openai.fit/v1/uploads/image-2"
+            ],
+            "audio_urls": [
+                "https://openai.fit/v1/uploads/audio-1"
+            ]
+        }
+    },
+    "seedance 2.0 fast-GT": {
+        "transport": "json",
+        "path": "/v1/videos",
+        "body": {
+            "model": "seedance 2.0 fast-GT",
+            "prompt": "漫剧分镜：穿灰色衬衫的女孩走进校门，回头微笑，镜头缓慢推进。",
+            "duration": 10,
+            "resolution": "720p",
+            "ratio": "16:9",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "漫剧分镜：穿灰色衬衫的女孩走进校门，回头微笑，镜头缓慢推进。"
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "https://openai.fit/v1/uploads/image-1"
+                    },
+                    "role": "reference_image"
+                },
+                {
+                    "type": "video_url",
+                    "video_url": {
+                        "url": "https://openai.fit/v1/uploads/video-1"
+                    },
+                    "role": "reference_video"
+                },
+                {
+                    "type": "audio_url",
+                    "audio_url": {
+                        "url": "https://openai.fit/v1/uploads/audio-1"
+                    },
+                    "role": "reference_audio"
+                }
+            ]
+        }
+    },
+    "minimax H3-self": {
+        "transport": "json",
+        "path": "/v1/videos",
+        "body": {
+            "model": "minimax H3-self",
+            "prompt": "漫剧分镜：穿灰色衬衫的女孩走进校门，回头微笑，镜头缓慢推进。",
+            "duration": 6,
+            "resolution": "768p横",
+            "ref_image_0": "iVBORw0KGgo=",
+            "ref_image_1": "iVBORw0KGgo="
+        }
+    },
+    "wan3.0-video": {
+        "transport": "json",
+        "path": "/v1/videos",
+        "body": {
+            "model": "wan3.0-video",
+            "prompt": "漫剧分镜：穿灰色衬衫的女孩走进校门，回头微笑，镜头缓慢推进。",
+            "duration": 8,
+            "resolution": "480P",
+            "ratio": "16:9",
+            "media": [
+                {
+                    "type": "first_frame",
+                    "url": "https://openai.fit/v1/uploads/image-1"
+                },
+                {
+                    "type": "last_frame",
+                    "url": "https://openai.fit/v1/uploads/image-2"
+                }
+            ]
+        }
+    },
+    "gpt-image-2-codex-MAX": {
+        "transport": "multipart",
+        "path": "/v1/images/edits",
+        "fields": {
+            "model": "gpt-image-2-codex-MAX",
+            "prompt": "漫剧分镜：穿灰色衬衫的女孩走进校门，回头微笑，镜头缓慢推进。",
+            "n": "1",
+            "size": "1024x1536"
+        },
+        "files": [
+            {
+                "field": "image",
+                "image": {
+                    "id": "image-1",
+                    "name": "image-1",
+                    "kind": "image",
+                    "role": "reference",
+                    "mimeType": "image/png",
+                    "dataUrl": "data:image/png;base64,iVBORw0KGgo="
+                }
+            }
+        ]
+    },
+    "gemini-nano-banana-2.1": {
+        "transport": "json",
+        "path": "/v1beta/models/gemini-nano-banana-2.1:generateContent",
+        "body": {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": "漫剧分镜：穿灰色衬衫的女孩走进校门，回头微笑，镜头缓慢推进。"
+                        },
+                        {
+                            "inline_data": {
+                                "mime_type": "image/png",
+                                "data": "iVBORw0KGgo="
+                            }
+                        }
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "candidateCount": 1,
+                "responseModalities": [
+                    "TEXT",
+                    "IMAGE"
+                ],
+                "imageConfig": {
+                    "aspectRatio": "16:9",
+                    "imageSize": "2K"
+                }
+            }
+        }
+    }
+}

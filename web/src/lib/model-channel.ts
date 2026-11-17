@@ -1,0 +1,40 @@
+export const modelChannelProtocols = [
+    { value: "openai", label: "OpenAI", baseUrl: "https://api.openai.com" },
+    { value: "gemini", label: "Gemini", baseUrl: "https://generativelanguage.googleapis.com" },
+    { value: "grok2api", label: "Grok2API", baseUrl: "" },
+    { value: "minimax", label: "MiniMax & METASO", baseUrl: "https://metaso.cn/api/minimax" },
+    { value: "apimart", label: "APIMart", baseUrl: "https://api.apimart.ai/v1", directRequestPlan: true },
+    { value: "88api", label: "88API", baseUrl: "https://88api.ai/v1" },
+    { value: "tokendance", label: "TokenDance", baseUrl: "https://tokendance.space/gateway/v1", directRequestPlan: true },
+    { value: "runninghub", label: "RunningHub", baseUrl: "https://www.runninghub.cn" },
+    { value: "comfyui", label: "ComfyUI", baseUrl: "" },
+    { value: "autodl", label: "AutoDL", baseUrl: "https://autodl.art", directRequestPlan: true },
+    { value: "ark", label: "火山方舟", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", directRequestPlan: true },
+    { value: "kie", label: "KIE", baseUrl: "https://api.kie.ai/api/v1", directRequestPlan: true },
+    { value: "mimo", label: "MiMo", baseUrl: "https://api.xiaomimimo.com" },
+] as const;
+
+export type ModelChannelProtocol = (typeof modelChannelProtocols)[number]["value"];
+export type DirectAIProvider = Extract<(typeof modelChannelProtocols)[number], { directRequestPlan: true }>["value"];
+export const modelChannelProtocolOptions = modelChannelProtocols.map(({ value, label }) => ({ label, value }));
+export const modelChannelDefaultBaseUrls = Object.fromEntries(modelChannelProtocols.map(({ value, baseUrl }) => [value, baseUrl])) as Record<ModelChannelProtocol, string>;
+
+export const FIT_ORIGIN = "https://openai.fit";
+export const FIT_CHANNEL_ID = "openai-fit";
+export const FIT_KEYS_URL = "https://openai.fit/keys";
+export const FIT_PRICING_URL = "https://openai.fit/pricing";
+export const fitProtocolOptions: Array<{ label: string; value: ModelChannelProtocol }> = [{ label: "openai.fit", value: "openai" }];
+
+export function modelChannelAttributionHeaders(_protocol: string): Record<string, string> {
+    return {};
+}
+
+const directRequestProviders: ReadonlySet<string> = new Set(modelChannelProtocols.flatMap((protocol) => "directRequestPlan" in protocol && protocol.directRequestPlan === true ? [protocol.value] : []));
+
+export function directAIProviderForProtocol(protocol: string): DirectAIProvider | null {
+    return directRequestProviders.has(protocol) ? protocol as DirectAIProvider : null;
+}
+
+export function isWorkflowProtocol(protocol: string): protocol is "runninghub" | "comfyui" {
+    return protocol === "runninghub" || protocol === "comfyui";
+}

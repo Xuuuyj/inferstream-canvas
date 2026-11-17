@@ -1,0 +1,107 @@
+{
+  "models": [
+    {
+      "available": true,
+      "defaultDuration": 15,
+      "defaultRatio": "9:16",
+      "defaultReferenceMode": "mixed",
+      "defaultResolution": "480P",
+      "description": "视频生成模型：时长 15 秒；清晰度 480P、768P、1088P、1440P；画幅 9:16、16:9；可上传最多 9 张参考图。",
+      "durations": [
+        15
+      ],
+      "family": "url-lists",
+      "id": "minimax-H3-super",
+      "kind": "video",
+      "maxAudios": 0,
+      "maxImages": 9,
+      "maxVideos": 0,
+      "mediaLimits": {},
+      "name": "minimax-H3-super",
+      "parameterSchema": [],
+      "promptMaxLength": 10000,
+      "ratios": [
+        "9:16",
+        "16:9"
+      ],
+      "referenceModes": [
+        {
+          "id": "text",
+          "label": "纯文字生成",
+          "maxAudios": 0,
+          "maxImages": 0,
+          "maxTotal": 0,
+          "maxVideos": 0
+        },
+        {
+          "id": "mixed",
+          "label": "参考素材",
+          "maxAudios": 0,
+          "maxImages": 9,
+          "maxTotal": 9,
+          "maxVideos": 0
+        }
+      ],
+      "resolutions": [
+        "480P",
+        "768P",
+        "1088P",
+        "1440P"
+      ],
+      "visible": true
+    },
+    {
+      "available": true,
+      "defaultDuration": 15,
+      "defaultRatio": "9:16",
+      "defaultReferenceMode": "mixed",
+      "defaultResolution": "480P",
+      "description": "视频生成模型：时长 15 秒；清晰度 480P、768P、1088P、1440P；画幅 9:16、16:9；可上传最多 9 张参考图、3 段参考音频。",
+      "durations": [
+        15
+      ],
+      "family": "url-lists",
+      "id": "minimax-h3-chovy",
+      "kind": "video",
+      "maxAudios": 3,
+      "maxImages": 9,
+      "maxVideos": 0,
+      "mediaLimits": {
+        "requireVisualWithAudio": false
+      },
+      "name": "minimax-h3-chovy",
+      "parameterSchema": [],
+      "promptMaxLength": 10000,
+      "ratios": [
+        "9:16",
+        "16:9"
+      ],
+      "referenceModes": [
+        {
+          "id": "text",
+          "label": "纯文字生成",
+          "maxAudios": 0,
+          "maxImages": 0,
+          "maxTotal": 0,
+          "maxVideos": 0
+        },
+        {
+          "id": "mixed",
+          "label": "参考素材",
+          "maxAudios": 3,
+          "maxImages": 9,
+          "maxTotal": 12,
+          "maxVideos": 0
+        }
+      ],
+      "resolutions": [
+        "480P",
+        "768P",
+        "1088P",
+        "1440P"
+      ],
+      "visible": true
+    }
+  ],
+  "schemaVersion": 1
+}

@@ -1,0 +1,50 @@
+# 画布容器内的转发层：把 inferstream Caddy 转来的请求分给 Go（/api/*）和 Next（其余）。
+# Go 只信任来自 127.0.0.1 的 X-Forwarded-For，所以这里把它改写成真实客户端 IP。
+{
+	admin off
+	auto_https off
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+:8000 {
+	# 后台暂不对公网开放；要开放时在这里加 IP 白名单。
+	@admin path /admin /admin/* /api/admin /api/admin/*
+	handle @admin {
+		respond 404
+	}
+	# Forward only model verification and image requests to the InferStream gateway.
+	@inferstream_image_api path /inferstream/v1/models /inferstream/v1/images/generations /inferstream/v1/images/edits
+	handle @inferstream_image_api {
+		uri strip_prefix /inferstream
+		reverse_proxy gateway:8080 {
+			header_up -Cookie
+			header_up X-Forwarded-For {client_ip}
+			header_down -Set-Cookie
+			transport http {
+				response_header_timeout 900s
+			}
+		}
+	}
+	# AGPL 源码包
+	redir /source /source/
+	handle /source/* {
+		root * /srv/canvas
+		file_server browse
+	}
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8080 {
+			header_up X-Forwarded-For {client_ip}
+			flush_interval -1
+			transport http {
+				read_timeout 15m
+				write_timeout 15m
+			}
+		}
+	}
+	handle {
+		reverse_proxy 127.0.0.1:3000 {
+			header_up X-Forwarded-For {client_ip}
+		}
+	}
+}

@@ -1,0 +1,167 @@
+{
+  "notice": "本目录除 shims/、__tests__/ 外都由 web/scripts/sync-fit-generate.ts 生成，勿手改（JSON 副本没法加注释，同样不许改）；.ts/.tsx 副本删去了 fit 源码里除版权头以外的注释，个别标识符按内部词表改过名，请求体和价格显示和 fit 源码一致；更新用 bun run sync:fit，核对用 bun run check:fit",
+  "commit": "a5970b5986f199e7d53b6abe0ead77982ee60998",
+  "redactionsSha256": "c0832e4eb52516e409dac965e47a0c68a5b63e844e76d43bb71fc31e6a9f7d76",
+  "files": {
+    "components/model-price-hint.tsx": {
+      "source": "web/src/features/generate/components/model-price-hint.tsx",
+      "sourceSha256": "52889ce9069d55d2958293fcb34f576bb1208efa198edf948ce4c2cfc1676cdc",
+      "sha256": "bd8c7fbc86fe3c62d79d2c14b1cad07d03db7a27c8f6415bf65ff13d90169c30"
+    },
+    "constants.ts": {
+      "source": "web/src/features/generate/constants.ts",
+      "sourceSha256": "95bdc408dfc1dc79bedbc0d8bc243bdcbf47b2346243c86e2c5eb808a448818b",
+      "sha256": "3e8ffafa4b644a1325fb8726baee0ba39e52c63d26a3bba765e250d2f97ea1c4"
+    },
+    "lib/canonical-capabilities.ts": {
+      "source": "web/src/features/generate/lib/canonical-capabilities.ts",
+      "sourceSha256": "89270cf2b6a72ab5f2fd817923d01e00f4a4c472bb016864fdada6f024e33afb",
+      "sha256": "00efdcacc6f42b61f9be73998c34e9d990b4b30d84a33a7185edd6549829d909"
+    },
+    "lib/capability-feed.ts": {
+      "source": "web/src/features/generate/lib/capability-feed.ts",
+      "sourceSha256": "a1d7a930f0c2381befab63b064556ec0590888374af74988d870f259928ecd1b",
+      "sha256": "d746ccb98d9e648c29b88acd0ab132a0f0a36aa450f9dffbfcabfffa3d9e9204"
+    },
+    "lib/hosting-plan.ts": {
+      "source": "web/src/features/generate/lib/hosting-plan.ts",
+      "sourceSha256": "fb4452e7d838d0e74f0e6d63ff19c56419c26062335c00c696afb2cdc2f35d18",
+      "sha256": "4e7a7c96e8a55d047716c13aecbf4282e67a48110212a9f3a8a8bd5d48a1596a"
+    },
+    "lib/image-downscale.ts": {
+      "source": "web/src/features/generate/lib/image-downscale.ts",
+      "sourceSha256": "71e3bdbc7fd8a31f106aebb9078709d5bf3975873a058226ebe977089923b535",
+      "sha256": "261a4469b35801c7f57494e21519dc830850cd4103e3a87a07ec69dabe01c0f9"
+    },
+    "lib/model-profiles.ts": {
+      "source": "web/src/features/generate/lib/model-profiles.ts",
+      "sourceSha256": "ec14cbcbabceb40d659694335a2f29588eb89a5c9828dd207381432040e5e3ef",
+      "sha256": "458ef15b7ad8f7a82b04e471e5a5949a6300e46c512ec345c815007691d11513"
+    },
+    "lib/prompt-length.ts": {
+      "source": "web/src/features/generate/lib/prompt-length.ts",
+      "sourceSha256": "b73bedb9729dbcedc2d2d52e14ee14bcb9784e46de27796eb47d0c9041de2ace",
+      "sha256": "ca86b65a1744dc971322497353924489f460aa6b690d9296bd00f87543522127"
+    },
+    "lib/prompt-mentions.ts": {
+      "source": "web/src/features/generate/lib/prompt-mentions.ts",
+      "sourceSha256": "9b8495f691b5738a56905fc1b5a188530e7ce041008dc0696d8c490b039817ef",
+      "sha256": "47c5b49e4403f9837401044e1cd49d2393c7a8fa6fc935ea2ba707ec1e2ef864"
+    },
+    "lib/reference-ratio.ts": {
+      "source": "web/src/features/generate/lib/reference-ratio.ts",
+      "sourceSha256": "81af13ac78c8725e8602583cb0c7256253c8a4fe6d5b1551ee794ec56e3cd31c",
+      "sha256": "a5a80e15a6d0c818d14358e3cfd08eb3666e039f864c0b23ac7db0815f441bb0"
+    },
+    "lib/relay-client.ts": {
+      "source": "web/src/features/generate/lib/relay-client.ts",
+      "sourceSha256": "fe8dc9b94cc77b7e0820465579647844a89d37ab853b478b3bf5ae34b7500808",
+      "sha256": "ddf17e37e7d434a8b3facb8a8a2940e758e57a603ce26fad169f1e3e615f6a29"
+    },
+    "lib/request-builders.ts": {
+      "source": "web/src/features/generate/lib/request-builders.ts",
+      "sourceSha256": "1ba6e70daff5f91093773df3082486d3617a397da52c5e3d4442f82681e15259",
+      "sha256": "c14e160e33c09c496b105d44b9aac0f1519510678a3ce4970801efea14ef4dc9"
+    },
+    "lib/upload-client.ts": {
+      "source": "web/src/features/generate/lib/upload-client.ts",
+      "sourceSha256": "813798ce10a489c04d54f437e0da08d115d7db35f2709d5d906083a27f4fcb50",
+      "sha256": "8b25518644289a51012f8e63555b58a22aedad107cc99b12614dde13ff5cd878"
+    },
+    "lib/validate-submission.ts": {
+      "source": "web/src/features/generate/lib/validate-submission.ts",
+      "sourceSha256": "c50cd2d7ff184f64aef0d25aa44b46dfff95e94d7e239e2b1e8575e911fd5a30",
+      "sha256": "44b003030f70e3072d30374bac331cb1da5951c1f27be0144f3489874f18c29c"
+    },
+    "messages.zh.json": {
+      "source": "web/src/i18n/locales/zh.json",
+      "sourceSha256": "c06a56e4dc80e25dfda44dc696d6a01afd6d49cb16d711830f99ff2a2dbdb687",
+      "sha256": "d42a89d17a893b97d6e3bdc00e39f420dd576691fe37a606d6ee0d34a2c6b7be"
+    },
+    "model-capabilities.json": {
+      "source": "web/src/features/generate/model-capabilities.json",
+      "sourceSha256": "8779cb3738d387bdbf84b9058295974d92ad204dc8495cffd87866b427bc007c",
+      "sha256": "8779cb3738d387bdbf84b9058295974d92ad204dc8495cffd87866b427bc007c"
+    },
+    "pricing/constants.ts": {
+      "source": "web/src/features/pricing/constants.ts",
+      "sourceSha256": "a284a5367587ffd30c541b69881577c829cdb8fbd50ed53ee7264d4d8da18644",
+      "sha256": "34b4b1f870700b6eb117012939e4d09307a9adf68120bdfba8e27a3e7f95f4a2"
+    },
+    "pricing/lib/billing-expr.ts": {
+      "source": "web/src/features/pricing/lib/billing-expr.ts",
+      "sourceSha256": "7eaadab6b7d1d36d2d3873c652b5ca735604704bc73c1e366b5e04421c8492fa",
+      "sha256": "13627eaa8748624590b23a67c86a2d751584ec4f8eae84c5116b8bec360f2fab"
+    },
+    "pricing/lib/billing-expression/display.ts": {
+      "source": "web/src/features/pricing/lib/billing-expression/display.ts",
+      "sourceSha256": "21df7fc0a6bde5f9dbcce7fbcf63743c93d8974b0c5c588933db5d5d8f70a2f2",
+      "sha256": "e2c7174436244acaea30f703f8efbe39a239699fdcf568f040c59423e872f1af"
+    },
+    "pricing/lib/billing-expression/parser.ts": {
+      "source": "web/src/features/pricing/lib/billing-expression/parser.ts",
+      "sourceSha256": "7abf08309df8976b7dff2867ac0a2b6aa6eeb8efa0ca4c0b79e469d5d5d4ec1a",
+      "sha256": "d437cc119903dcb2ce22ac0791fa734982a137f184648005ed257df28713e0a5"
+    },
+    "pricing/lib/billing-expression/runtime.ts": {
+      "source": "web/src/features/pricing/lib/billing-expression/runtime.ts",
+      "sourceSha256": "11133fb5985d3d0f517373efb8017ca6a39832ff1abc18e4884e4f7829df8871",
+      "sha256": "771c4b6293044579f80d210ede198472f4e4a2cab6561c940a8a508b1b52d7aa"
+    },
+    "pricing/lib/billing-expression/structure.ts": {
+      "source": "web/src/features/pricing/lib/billing-expression/structure.ts",
+      "sourceSha256": "f5e8f335bf8d09b16bac066587860b684f33cf0345d38d0862b94b0627e770c8",
+      "sha256": "00ee332905b137b2bd2179409acc07deb342ccf7fb03ad4b52ddbef3d1af8e51"
+    },
+    "pricing/lib/billing-expression/types.ts": {
+      "source": "web/src/features/pricing/lib/billing-expression/types.ts",
+      "sourceSha256": "60186f86c6f66fb563b67e9bce279c4b964c33b17d2f8e9e4916541229f3e13f",
+      "sha256": "a314caf0babf7e7dd742c0d8ead32bf16724e75f3cd04f3c825ab1f34b6c5bf0"
+    },
+    "pricing/lib/dynamic-price.ts": {
+      "source": "web/src/features/pricing/lib/dynamic-price.ts",
+      "sourceSha256": "4ab0c8e863c335f238466049f4a8f459e9b0886bebc652a2e58fffd58181e9f7",
+      "sha256": "b21e47381cbdf34d02b9005231992dfbaea9d447a2622962f18a035c30953aa3"
+    },
+    "pricing/lib/model-helpers.ts": {
+      "source": "web/src/features/pricing/lib/model-helpers.ts",
+      "sourceSha256": "6cfd710a78c4c4143e9fe12f966630304465fb051bb759e2d09f50963b86e623",
+      "sha256": "a60eae9d1966841f0b45476d72ac411a6b13e895036a3bbb63aab67e371d9ef0"
+    },
+    "pricing/lib/plugin-pricing.ts": {
+      "source": "web/src/features/pricing/lib/plugin-pricing.ts",
+      "sourceSha256": "a68f62e842ef88bc0d9e59249b2f347bfee4944df4c6084183494ecce0549c79",
+      "sha256": "b0d7cbfcd677d23bd5794b075095ee6b3d5a3d63a5a2bbed39ceb0434ed5e3f6"
+    },
+    "pricing/lib/price.ts": {
+      "source": "web/src/features/pricing/lib/price.ts",
+      "sourceSha256": "e95cac7fb8e96dbb73e40ca1e1a9ffcf7a873f562b59f51452416b56247a73c5",
+      "sha256": "cfb24c28dbf6cbaf60a7317d539633c9168020607d1d6d670fce80e82fcd3539"
+    },
+    "pricing/lib/task-expr.ts": {
+      "source": "web/src/features/pricing/lib/task-expr.ts",
+      "sourceSha256": "6abdfb0c4a14f0389d77a913219fdcf60235efad405680d36b2451153a77c050",
+      "sha256": "b7874d4a1a667686c5ce64d57e2d2b64910fafe9710b44be890ebd1186482c58"
+    },
+    "pricing/types.ts": {
+      "source": "web/src/features/pricing/types.ts",
+      "sourceSha256": "83878bc0af6318aaf02545824575fd2f7c7d5f564173ea3438817b53df9111d8",
+      "sha256": "effbbaee2e399d1d0f48c246ee7f0ec113b5fa63d03f58b10c7819badeb1945e"
+    },
+    "shared/currency.ts": {
+      "source": "web/src/lib/currency.ts",
+      "sourceSha256": "52e3f8e84209816fddd076718b20f58786fe502f0926bc5fbf65cc97b4d191a7",
+      "sha256": "053193285d9408744d3958435d706bec250a2f5a9de02fae003fdb60a44e3cc0"
+    },
+    "testdata/studio-declared-entries.golden.json": {
+      "source": "model/testdata/studio-declared-entries.golden.json",
+      "sourceSha256": "69ec72154cc5434b833c8be28d8286a72ab1312461b2d8a163fd692380397384",
+      "sha256": "69ec72154cc5434b833c8be28d8286a72ab1312461b2d8a163fd692380397384"
+    },
+    "types.ts": {
+      "source": "web/src/features/generate/types.ts",
+      "sourceSha256": "84d885a5e8f4feac45ff1abc04a0adff84cb87646c56d7c0ab4a0d814b56e604",
+      "sha256": "b9f195bcb8f7e7a1862bbe554a9f87e1b38d13c7a8c63c8e5105e9dc4c361a66"
+    }
+  }
+}

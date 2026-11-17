@@ -1,0 +1,32 @@
+# canvas.openai.fit 线上用：镜像只在本机构建（发版脚本用同一份源码包 docker build），从不去仓库拉别人的镜像。
+# 容器用 host 网络，Next 和 Go 只监听 127.0.0.1:3000 / 127.0.0.1:8080，由宿主机 Caddy 对外提供 HTTPS。
+# ./data 挂到 /app/data，要归 uid 1000（容器里的 node 用户）：sudo install -d -o 1000 -g 1000 data
+services:
+  app:
+    image: fit-canvas:${CANVAS_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SOURCE_COMMIT: ${NEXT_PUBLIC_SOURCE_COMMIT:-}
+    pull_policy: never
+    container_name: infinite-canvas
+    env_file:
+      - .env
+    environment:
+      GOMEMLIMIT: 600MiB
+    network_mode: host
+    volumes:
+      - ./data:/app/data
+    mem_limit: 2g
+    # 进程是 node 用户（uid 1000）、端口都大于 1024、入口脚本不 chown，用不到任何 capability。
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+    restart: unless-stopped

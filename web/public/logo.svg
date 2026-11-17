@@ -1,0 +1,19 @@
+<svg viewBox="220 20 240 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <mask id="inferstreamWaveMask">
+      <circle cx="340" cy="140" r="120" fill="white" />
+      <g fill="none" stroke="black" stroke-width="22" stroke-linecap="butt">
+        <path d="M 200 59 L 318 59 C 336 59, 344 96, 362 96 L 480 96" />
+        <path d="M 200 122 L 318 122 C 336 122, 344 158, 362 158 L 480 158" />
+        <path d="M 200 184 L 318 184 C 336 184, 344 221, 362 221 L 480 221" />
+      </g>
+    </mask>
+  </defs>
+  <circle
+    cx="340"
+    cy="140"
+    r="120"
+    fill="#172026"
+    mask="url(#inferstreamWaveMask)"
+  />
+</svg>

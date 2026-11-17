@@ -1,0 +1,16 @@
+services:
+  app:
+    image: infinite-canvas:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    # 本地源码构建只用于开发，固定 dev 模式（盖过 .env 里的 APP_ENV）。
+    environment:
+      APP_ENV: dev
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "3000:3000"
+    restart: unless-stopped

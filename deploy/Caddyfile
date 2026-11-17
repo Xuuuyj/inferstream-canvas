@@ -1,0 +1,106 @@
+# canvas.openai.fit 的 Caddy 配置，装在服务器的 /etc/caddy/Caddyfile。
+# 用 `python -I deploy/release.py --caddy` 安装：先以 caddy 用户 `caddy validate`，通过后才替换并 reload。
+# 本文件会随源码包公开，不要写业主 IP、密钥等私密信息；后台白名单在服务器上的
+# /etc/caddy/canvas-admin-ips.caddy 里（格式见 deploy/server-setup.md）。
+
+# 管理接口不开 TCP 端口（默认的 localhost:2019 没有鉴权，容器用 host 网络时里面的进程也连得到），
+# 只开 unix socket。/run/caddy 由 caddy.service 的 RuntimeDirectory=caddy 建出来（见 deploy/server-setup.md 第 1 节）；
+# systemctl reload caddy 会从本文件读出这个地址，照常可用。
+#
+# log default 是 Caddy 自己的日志（写到 stderr，进 journald）：后端连不上时的错误日志、客户端在流式代理途中断开时
+# reverse_proxy 的警告都会带上完整的请求地址，站点里 log 段的过滤器管不到它们。这里删掉同样的查询参数，
+# 和站点访问日志一致（/api/proxy-image 的 url 可能是 fit 成片的签名链接，见 deploy/RELEASING.md「成片签名链接和日志」）。
+{
+	admin unix//run/caddy/admin.sock
+	log default {
+		format filter {
+			request>uri query {
+				delete apiKey
+				delete apikey
+				delete key
+				delete url
+				delete access
+				delete code
+				delete state
+			}
+		}
+	}
+}
+
+canvas.openai.fit {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin"
+		X-Frame-Options "SAMEORIGIN"
+		# 先只报告不拦截，观察一周没有误报再把字段名改成 Content-Security-Policy（见 deploy/RELEASING.md）。
+		# connect-src：本站、openai.fit、fit 成片签名链接所在的 OSS 主机、本地 Codex Agent（http://127.0.0.1:端口）。
+		# data:/blob: 是浏览器把本地图片转成 Blob 时 fetch 自己的数据，不连外网。
+		Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' data: blob: https://openai.fit https://fadacai-openai-fit.oss-cn-shenzhen.aliyuncs.com http://127.0.0.1:* http://localhost:*; worker-src 'self' blob:; frame-src 'self' https://openai.fit; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+		-X-Powered-By
+	}
+
+	# 后台页面和后台接口只对白名单 IP 开放，其他来源一律 404。
+	@admin_blocked {
+		path /admin /admin/* /api/admin /api/admin/*
+		not {
+			import /etc/caddy/canvas-admin-ips.caddy
+		}
+	}
+	# 3D 导演台（web/public/director/，业主 2026-11-02 开放）由兜底的前端转发提供；要关掉时在这里加 @director path /director /director/*
+	# 回 404，并把 web/src/constant/features.ts 的 DIRECTOR_ENABLED 改成 false。
+	@source path /source/*
+	@api path /api/*
+
+	# 这几个 handle 都用具名匹配器，按书写顺序判断，后台拦截排在最前面。
+	handle @admin_blocked {
+		respond 404
+	}
+
+	# AGPL 源码包：release.py 把每个版本的 git archive 放在 /srv/canvas/source/。
+	redir /source /source/
+	handle @source {
+		root * /srv/canvas
+		file_server browse
+	}
+
+	# /api/* 直接交给 Go，不经过 Next。
+	handle @api {
+		reverse_proxy 127.0.0.1:8080 {
+			flush_interval -1
+			transport http {
+				read_timeout 15m
+				write_timeout 15m
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	log {
+		output file /var/log/caddy/canvas-access.log {
+			roll_size 50MiB
+			roll_keep 10
+			roll_keep_for 720h
+		}
+		# Authorization、Cookie 请求头 Caddy 默认就会打码；这里再删掉查询参数里可能带的密钥，
+		# 以及 /api/proxy-image 的 url（可能是 fit 成片的签名链接，带 access=，单独就能看那条成片）。
+		# code、state 只走请求体（openai.fit 自动登录的一次性登录码，见 /api/auth/fit/login），这里兜底。
+		format filter {
+			request>uri query {
+				delete apiKey
+				delete apikey
+				delete key
+				delete url
+				delete access
+				delete code
+				delete state
+			}
+		}
+	}
+}
