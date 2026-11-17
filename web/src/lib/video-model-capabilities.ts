@@ -1,3 +1,4 @@
+import { inferStreamVideoEnabled, isInferStreamVideoModel } from "@/lib/inferstream-image-access";
 import { fitProfileFor } from "@/services/api/fit/catalog";
 
 export function modelKey(modelName: string) {
@@ -39,6 +40,8 @@ export function videoDurationOptionsForModel(modelName: string) {
 
 /** openai.fit 的模型按 fit 卡片的 profile 判断（下面按名字的规则不再用）；profile 要先 loadFitStudio 才有。 */
 export function supportsVideoFrameReferences(modelName: string, protocol = "") {
+    // InferStream 的 seedance-2.0-mini 收首帧（不收尾帧，见 inferStreamReferenceIssue）
+    if (isInferStreamVideoModel(modelName) && inferStreamVideoEnabled()) return true;
     const fit = fitProfileFor(modelName);
     if (fit) return fit.roles.some((role) => role !== "reference");
     if (protocol === "autodl") return modelName === "minimax_h3_b99_002" || modelName === "minimax_h3_lightx2v";

@@ -16,7 +16,7 @@ export type FitReferenceInput = { references?: ReferenceImage[]; firstFrame?: Re
 
 type CanvasMedia = ReferenceImage | ReferenceVideo | ReferenceAudio;
 type MediaKind = Exclude<ReferenceAssetKind, "image">;
-type Slot = readonly [ReferenceAssetKind, ReferenceRole, CanvasMedia];
+export type Slot = readonly [ReferenceAssetKind, ReferenceRole, CanvasMedia];
 /** 给一个素材补上内容：base 是还没读内容的 fit 素材（id、名字、种类、用途）。生成前预检换成不读文件的版本。 */
 export type FitMediaReader = (base: FitReference, source: CanvasMedia) => Promise<FitReference>;
 
@@ -115,7 +115,7 @@ function pickAdvanced(profile: ModelProfile, config: FitValuesConfig): AdvancedV
  * 参考图、视频、音频按种类重新编号）。画布按连线顺序给全部素材编号，首尾帧也算，fit 只数普通参考素材，所以不能按数字换。
  * 没给标签时参考图、视频、音频各自按传进来的顺序编号（视频、图片工作台的编法，首尾帧不编号）。对不上素材的引用直接报错，不让它指着别的素材发出去。
  */
-function fitMentions(prompt: string, slots: Slot[], references: FitReference[], labels?: Record<string, string>) {
+export function fitMentions(prompt: string, slots: Slot[], references: FitReference[], labels?: Record<string, string>) {
     const tokens = mentionOptions(references);
     const counts: Record<ReferenceAssetKind, number> = { image: 0, video: 0, audio: 0 };
     const byLabel = new Map<string, string>();
@@ -139,7 +139,7 @@ function mimeOf(dataUrl: string) {
     return /^data:([^;,]+)/i.exec(dataUrl)?.[1] || "";
 }
 
-async function imageAsset(image: ReferenceImage) {
+export async function imageAsset(image: ReferenceImage) {
     const dataUrl = image.dataUrl?.startsWith("data:") ? image.dataUrl : await (await import("@/services/image-storage")).imageToDataUrl(image);
     if (!dataUrl) throw new Error(`读取参考图 ${image.name} 失败`);
     // 和 fit 生成台一样，超过 1280 边长或 2MB 的图先缩小成 JPEG 再发（浏览器外 downscaleImage 直接返回 null）

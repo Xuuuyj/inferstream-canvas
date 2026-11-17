@@ -52,8 +52,46 @@ test("InferStream video body follows the model's range and refuses what it canno
     assert.throws(() => inferStreamVideoBody(config({ videoSeconds: "3" }), "x"), /4–15 秒/);
     assert.throws(() => inferStreamVideoBody(config({ vquality: "1080" }), "x"), /480p、720p/);
     assert.throws(() => inferStreamVideoBody(config({ model: "grok-imagine-video", videoModel: "grok-imagine-video" }), "x"), /暂不支持视频模型/);
-    assert.match(inferStreamVideoIssue(config(), "x", { references: [{ id: "r", dataUrl: "data:image/png;base64,AA", mimeType: "image/png", name: "r.png" } as never] }), /只支持文生视频/);
     assert.equal(inferStreamVideoIssue(config(), "x", {}), "");
+});
+
+const image = (id: string, dataUrl = "data:image/png;base64,QUFB") => ({ id, name: `${id}.png`, type: "image/png", dataUrl });
+
+test("InferStream video refuses reference combinations Seedance mini cannot take", () => {
+    assert.equal(inferStreamVideoIssue(config(), "@图片1 和 @图片2", { references: [image("a"), image("b")] }), "");
+    assert.equal(inferStreamVideoIssue(config(), "x", { firstFrame: image("f") }), "");
+    assert.match(inferStreamVideoIssue(config(), "x", { references: Array.from({ length: 10 }, (_, i) => image(`r${i}`)) }), /最多 9 张/);
+    assert.match(inferStreamVideoIssue(config(), "x", { firstFrame: image("f"), references: [image("a")] }), /不能同时使用/);
+    assert.match(inferStreamVideoIssue(config(), "x", { lastFrame: image("l") }), /尾帧/);
+    assert.match(inferStreamVideoIssue(config(), "x", { audioReferences: [{ id: "s" } as never] }), /参考音频/);
+    assert.match(inferStreamVideoIssue(config(), "@图片3", { references: [image("a")] }), /@图片3/);
+});
+
+test("InferStream video sends connected images as Seedance content references", async () => {
+    const env = setup("ref-user");
+    try {
+        saveInferStreamToken("video", "ref-user", "sk-video");
+        globalThis.fetch = (async (target, init) => {
+            env.calls.push({ url: String(target), init: init ?? {} });
+            return Response.json({ id: "video_ref", status: "queued" });
+        }) as typeof fetch;
+        // 画布按连线顺序给素材编号：节点 b 是图片1、节点 a 是图片2
+        const labelled = { ...config(), fitMentionLabels: { b: "图片1", a: "图片2" } };
+        await createInferStreamVideoTask(labelled, "@图片2 慢慢走向 @图片1", { references: [image("b", "data:image/png;base64,QkJC"), image("a", "data:image/jpeg;base64,QUFB")] });
+        const body = JSON.parse(String(env.calls[0].init.body));
+        assert.equal(body.prompt, "@图2 慢慢走向 @图1");
+        assert.deepEqual(body.content, [
+            { type: "text", text: "@图2 慢慢走向 @图1" },
+            { type: "image_url", image_url: { url: "data:image/png;base64,QkJC" }, role: "reference_image" },
+            { type: "image_url", image_url: { url: "data:image/jpeg;base64,QUFB" }, role: "reference_image" },
+        ]);
+
+        env.calls.length = 0;
+        await createInferStreamVideoTask(config(), "从 @首帧 开始", { firstFrame: image("f") });
+        assert.equal(JSON.parse(String(env.calls[0].init.body)).content[1].role, "first_frame");
+    } finally {
+        env.restore();
+    }
 });
 
 test("InferStream video submits, polls and downloads with the video key, not the image key", async () => {

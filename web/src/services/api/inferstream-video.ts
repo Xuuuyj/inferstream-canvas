@@ -1,18 +1,25 @@
 import { inferStreamDefaultVideoModel, inferStreamProxy, inferStreamToken, inferStreamVideoModels, missingInferStreamToken } from "@/lib/inferstream-image-access";
+import type { ReferenceImage as FitReference } from "@/lib/fit-generate/types";
 import { normalizeSeedanceRatio } from "@/lib/seedance-video";
 import type { AiConfig } from "@/stores/use-config-store";
+import type { ReferenceImage } from "@/types/image";
+import { fitMentions, imageAsset, type Slot } from "./fit/values";
 import type { CreatedVideoGenerationTask, VideoGenerationResult, VideoProgressHandler, VideoReferenceInput, VideoResponse } from "./video";
 
 /**
  * InferStream 视频生成（2026-11-17）：经画布同源的 /inferstream/v1 调网关的 OpenAI videos 接口
  * （POST /v1/videos 提交、GET /v1/videos/{id} 查询、GET /v1/videos/{id}/content 取成片），用设置里选的视频 Key。
- * 成片下载一次存进浏览器。第一期只做文生视频：网关还不托管参考素材。
+ * 成片下载一次存进浏览器。
+ * 参考图（2026-11-17 起）：连进来的图片按 Seedance 的 content 列表发（参考图或首帧，内联 data URL），网关提交前把它们托管到上游再换成链接。
+ * 提示词里的 @图片N 换成 Seedance 的 @图N / @首帧（和 openai.fit 生成台同一写法）。暂不支持尾帧、参考视频和参考音频。
  */
 
 export const INFERSTREAM_VIDEO_POLL_INTERVAL_MS = 8000;
 const MAX_POLL_FAILURES = 5;
 
-export type InferStreamVideoConfig = Pick<AiConfig, "model" | "videoModel" | "vquality" | "size" | "videoSeconds" | "systemPrompt" | "systemPrompts">;
+export type InferStreamVideoConfig = Pick<AiConfig, "model" | "videoModel" | "vquality" | "size" | "videoSeconds" | "systemPrompt" | "systemPrompts"> & { fitMentionLabels?: Record<string, string> };
+/** 读好内容的参考图（data URL），按发给网关的顺序。 */
+export type InferStreamVideoReference = { role: "first_frame" | "reference"; dataUrl: string };
 type SavedVideo = { url: string; storageKey: string };
 type SaveVideo = (blob: Blob, remoteId: string) => Promise<SavedVideo>;
 
@@ -51,12 +58,48 @@ async function errorFrom(response: Response, fallback: string) {
     return new InferStreamRequestError(message, response.status);
 }
 
-function hasReferences(input: VideoReferenceInput) {
-    return Boolean(input.references?.length || input.videoReferences?.length || input.audioReferences?.length || input.firstFrame || input.lastFrame);
+/** seedance-2.0-mini 最多 9 张参考图；首帧和普通参考图不能混用（openai.fit 卡片 seedance2.0 mini stable 的规则）。 */
+export const INFERSTREAM_MAX_REFERENCE_IMAGES = 9;
+/** 网关请求体上限 16 MB，参考图读成 data URL 后合计不超过这个数（留出提示词和 JSON 的余量）。 */
+export const INFERSTREAM_MAX_REFERENCE_CHARS = 14 * 1024 * 1024;
+
+/** 参考素材的组合 InferStream 收不收；收返回空串（不读素材内容）。 */
+export function inferStreamReferenceIssue(input: VideoReferenceInput) {
+    if (input.videoReferences?.length || input.audioReferences?.length) return "InferStream 视频暂不支持参考视频和参考音频，请只连图片。";
+    if (input.lastFrame) return "InferStream 视频暂不支持尾帧，请把尾帧改成普通参考图或首帧。";
+    const images = input.references?.length ?? 0;
+    if (input.firstFrame && images) return "首帧和普通参考图不能同时使用，请只保留一种。";
+    if (images > INFERSTREAM_MAX_REFERENCE_IMAGES) return `参考图最多 ${INFERSTREAM_MAX_REFERENCE_IMAGES} 张，现在连了 ${images} 张。`;
+    return "";
+}
+
+function referenceSlots(input: VideoReferenceInput): Slot[] {
+    return [...(input.firstFrame ? [["image", "first_frame", input.firstFrame] as const] : []), ...(input.references ?? []).map((image) => ["image", "reference", image] as const)];
+}
+
+function fitReferenceOf([kind, role, source]: Slot, index: number, dataUrl = ""): FitReference {
+    return { id: `${index}-${source.id}`, name: source.name, kind, role, mimeType: source.type, dataUrl };
+}
+
+/** 提示词里画布的 @图片N 换成 Seedance 的写法；引用了没连进来的素材时报错。 */
+function referencePrompt(config: InferStreamVideoConfig, prompt: string, input: VideoReferenceInput) {
+    const slots = referenceSlots(input);
+    return slots.length ? fitMentions(prompt, slots, slots.map((slot, index) => fitReferenceOf(slot, index)), config.fitMentionLabels) : prompt;
+}
+
+/** 读参考图内容（超过 1280 边长或 2MB 的先缩小成 JPEG），检查合计大小。 */
+async function readReferences(input: VideoReferenceInput): Promise<InferStreamVideoReference[]> {
+    const references: InferStreamVideoReference[] = [];
+    for (const [, role, source] of referenceSlots(input)) {
+        const { dataUrl } = await imageAsset(source as ReferenceImage);
+        references.push({ role: role === "first_frame" ? "first_frame" : "reference", dataUrl });
+    }
+    if (references.reduce((sum, reference) => sum + reference.dataUrl.length, 0) > INFERSTREAM_MAX_REFERENCE_CHARS) throw new Error("参考图合计太大（超过约 10 MB），请减少张数或换小一点的图。");
+    return references;
 }
 
 /** 画布的参数换成网关请求体；参数超出模型范围时直接报错，不发请求、不扣费。 */
-export function inferStreamVideoBody(config: InferStreamVideoConfig, prompt: string) {
+export function inferStreamVideoBody(config: InferStreamVideoConfig, prompt: string, references: InferStreamVideoReference[] = []) {
     const model = config.model || config.videoModel || inferStreamDefaultVideoModel;
     const spec = inferStreamVideoModels[model];
     if (!spec) throw new Error(`InferStream 暂不支持视频模型「${model}」，请在模型里选择 ${Object.keys(inferStreamVideoModels).join("、")}。`);
@@ -77,25 +120,31 @@ export function inferStreamVideoBody(config: InferStreamVideoConfig, prompt: str
         duration: seconds,
         resolution: `${resolution}p`,
         ratio: spec.ratios.includes(ratio) ? ratio : spec.ratios[0],
+        // Seedance 的 content 列表：文字在前，参考图按 @图N 的顺序（和 openai.fit 生成台 content 模式同形）
+        ...(references.length
+            ? { content: [{ type: "text", text }, ...references.map((reference) => ({ type: "image_url", image_url: { url: reference.dataUrl }, role: reference.role === "first_frame" ? "first_frame" : "reference_image" }))] }
+            : {}),
     };
 }
 
 /** 提交前检查（不发请求）：有问题返回提示文案，没问题返回空串。 */
 export function inferStreamVideoIssue(config: InferStreamVideoConfig, prompt: string, input: VideoReferenceInput) {
-    if (hasReferences(input)) return REFERENCES_UNSUPPORTED;
+    const referenceIssue = inferStreamReferenceIssue(input);
+    if (referenceIssue) return referenceIssue;
     try {
-        inferStreamVideoBody(config, prompt);
+        inferStreamVideoBody(config, referencePrompt(config, prompt, input));
         return "";
     } catch (error) {
         return error instanceof Error ? error.message : String(error);
     }
 }
 
-const REFERENCES_UNSUPPORTED = "InferStream 视频暂时只支持文生视频，请先移除参考图、首尾帧和参考音视频。";
-
 export async function createInferStreamVideoTask(config: InferStreamVideoConfig, prompt: string, input: VideoReferenceInput, signal?: AbortSignal, onProgress?: VideoProgressHandler): Promise<CreatedVideoGenerationTask> {
-    if (hasReferences(input)) throw new Error(REFERENCES_UNSUPPORTED);
-    const body = inferStreamVideoBody(config, prompt);
+    const referenceIssue = inferStreamReferenceIssue(input);
+    if (referenceIssue) throw new Error(referenceIssue);
+    const text = referencePrompt(config, prompt, input);
+    inferStreamVideoBody(config, text);
+    const body = inferStreamVideoBody(config, text, await readReferences(input));
     const startedAt = Date.now();
     signal?.throwIfAborted();
     const response = await gatewayFetch("/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
