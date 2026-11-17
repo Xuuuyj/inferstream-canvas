@@ -42,7 +42,8 @@ import {
 import { App, Button, Dropdown, Modal, Slider } from "antd";
 import { isCogVideoX3Model, modelKey, supportsVideoAudioGeneration, supportsVideoFrameReferences } from "@/lib/video-model-capabilities";
 import { DIRECTOR_ENABLED } from "@/constant/features";
-import { inferStreamImageEnabled, inferStreamImageModel, inferStreamImageToken, missingInferStreamImageToken } from "@/lib/inferstream-image-access";
+import { inferStreamImageEnabled, inferStreamImageModel, inferStreamImageToken, inferStreamToken, missingInferStreamImageToken, missingInferStreamToken } from "@/lib/inferstream-image-access";
+import { inferStreamVideoIssue } from "@/services/api/inferstream-video";
 import { fitKeySet, isFitConfig } from "@/lib/fit-config";
 import { VIDEO_POLL_INTERVAL_MS as FIT_VIDEO_POLL_INTERVAL_MS } from "@/lib/fit-generate/constants";
 import { fitPollFailure, fitPrecheck, fitVideoDurationHint, fitVideoSecondsIssue } from "@/lib/fit-panel";
@@ -6293,6 +6294,10 @@ async function fitGenerationIssue(config: AiConfig, mode: "image" | "video", pro
         if (!inferStreamImageToken()) return missingInferStreamImageToken;
         if (config.model !== inferStreamImageModel) return `请先选择 ${inferStreamImageModel} 模型。`;
         return prompt.trim() ? "" : "请输入图片提示词。";
+    }
+    if (mode === "video" && inferStreamImageEnabled()) {
+        if (!inferStreamToken("video")) return missingInferStreamToken("video");
+        return inferStreamVideoIssue(config, prompt, { references: context.referenceImages, videoReferences: context.referenceVideos, audioReferences: context.referenceAudios, firstFrame: context.firstFrame, lastFrame: context.lastFrame });
     }
     if (!isFitConfig(config)) return "";
     try {

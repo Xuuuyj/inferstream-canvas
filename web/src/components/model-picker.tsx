@@ -9,7 +9,7 @@ import { useFitPricing } from "@/hooks/use-fit-pricing";
 import { useFitProfile } from "@/hooks/use-fit-profile";
 import { ModelPriceHint } from "@/lib/fit-generate/components/model-price-hint";
 import { fitTokenPriceText, type FitPricing } from "@/lib/fit-price";
-import { inferStreamImageModel } from "@/lib/inferstream-image-access";
+import { inferStreamImageModel, inferStreamVideoModels } from "@/lib/inferstream-image-access";
 import { FIT_CHANNEL_ID, isWorkflowProtocol } from "@/lib/model-channel";
 import { cn } from "@/lib/utils";
 import type { WorkflowRef } from "@/lib/workflow-channel";
@@ -42,6 +42,7 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
     const userReady = useUserStore((state) => state.isReady);
     const publicSettings = useConfigStore((state) => state.publicSettings);
     const inferStreamImages = capability === "image" && publicSettings?.auth?.inferStreamLogin === true;
+    const inferStreamVideos = capability === "video" && publicSettings?.auth?.inferStreamLogin === true;
     const workflowEnabled = Boolean(onWorkflowChange && capability && capability !== "text");
     // 这类模型用哪把令牌：语音跟文本走同一把；没指定类型时有任何一把就算有
     const keyKind = capability === "audio" ? "text" : capability;
@@ -51,14 +52,18 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
             config.channelMode === "remote"
                 ? config.publicChannels.map((channel) => ({ id: channel.id, protocol: channel.protocol, name: channel.id === FIT_CHANNEL_ID ? "旧模型服务" : channel.name || "云端渠道", baseUrl: channel.baseUrl, models: channel.models, modelCapabilities: channel.modelCapabilities, workflows: channel.workflows || [] }))
                 : normalizeLocalChannels(config).map((channel) => ({ id: channel.id, protocol: channel.protocol, name: channel.id === FIT_CHANNEL_ID ? "旧模型服务" : channel.name || "本地渠道", baseUrl: channel.baseUrl, models: channel.models, modelCapabilities: channel.modelCapabilities, workflows: channel.workflowSummaries || [] }));
-        const filtered = inferStreamImages ? [{ key: inferStreamImageModel, channelName: "InferStream", model: inferStreamImageModel }] : channels.filter((channel) => !isWorkflowProtocol(channel.protocol || "")).flatMap((channel) => filterModelsByCapability(channel.models ?? [], capability, channel.protocol || "", channel.modelCapabilities).map((model) => ({ key: `${channel.id}::${model}`, channelId: channel.id, channelName: channel.name, protocol: channel.protocol, baseUrl: channel.baseUrl, model })));
+        const filtered = inferStreamImages
+            ? [{ key: inferStreamImageModel, channelName: "InferStream", model: inferStreamImageModel }]
+            : inferStreamVideos
+              ? Object.keys(inferStreamVideoModels).map((model) => ({ key: model, channelName: "InferStream", model }))
+              : channels.filter((channel) => !isWorkflowProtocol(channel.protocol || "")).flatMap((channel) => filterModelsByCapability(channel.models ?? [], capability, channel.protocol || "", channel.modelCapabilities).map((model) => ({ key: `${channel.id}::${model}`, channelId: channel.id, channelName: channel.name, protocol: channel.protocol, baseUrl: channel.baseUrl, model })));
         if (!workflowEnabled || !token) return filtered;
         const scope = config.channelMode === "remote" ? "system" : "personal";
         return [...filtered, ...channels.flatMap((channel) => isWorkflowProtocol(channel.protocol || "") ? channel.workflows.filter((entry) => entry.enabled && entry.capability === capability && entry.provider === channel.protocol).map((entry) => {
             const ref: WorkflowRef = { scope, channelId: channel.id || "", kind: entry.kind, workflowId: entry.workflowId };
             return { key: `workflow:${JSON.stringify([ref.scope, ref.channelId, ref.kind, ref.workflowId])}`, channelId: channel.id, channelName: channel.name, protocol: channel.protocol, baseUrl: channel.baseUrl, model: "", workflowRef: ref, label: entry.title || entry.workflowId };
         }) : [])];
-    }, [capability, config, inferStreamImages, token, workflowEnabled]);
+    }, [capability, config, inferStreamImages, inferStreamVideos, token, workflowEnabled]);
     const modelLabel = useAutoDLWorkflowNames(channelOptions);
     const currentOption = useMemo<PickerOption | undefined>(() => {
         if (workflowRef && workflowEnabled) return channelOptions.find((item) => "workflowRef" in item && item.key === `workflow:${JSON.stringify([workflowRef.scope, workflowRef.channelId, workflowRef.kind, workflowRef.workflowId])}`);
@@ -104,7 +109,7 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
             value={current ? currentValue : ""}
             onOpenChange={(nextOpen) => {
                 // 没填令牌才去配置；有令牌但这一类没有模型时照常展开，告诉用户 openai.fit 暂无这类模型。
-                if (nextOpen && !inferStreamImages && !hasFitToken && onMissingConfig) {
+                if (nextOpen && !inferStreamImages && !inferStreamVideos && !hasFitToken && onMissingConfig) {
                     onMissingConfig();
                     return;
                 }

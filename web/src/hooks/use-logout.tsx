@@ -3,7 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { App, Button } from "antd";
 
-import { saveInferStreamImageToken } from "@/lib/inferstream-image-access";
+import { clearInferStreamTokens } from "@/lib/inferstream-image-access";
 import { disableInferStreamAutoLogin } from "@/lib/inferstream-login";
 import { logoutAsksAboutFitToken } from "@/lib/fit-config";
 import { useConfigStore } from "@/stores/use-config-store";
@@ -22,7 +22,7 @@ export function useLogout() {
     const clearSession = () => {
         disableInferStreamAutoLogin();
         const userId = useUserStore.getState().user?.id;
-        if (userId) saveInferStreamImageToken(userId, "");
+        if (userId) clearInferStreamTokens(userId);
         clearUserSession();
     };
     const clearFitKeys = useConfigStore((state) => state.clearFitKeys);

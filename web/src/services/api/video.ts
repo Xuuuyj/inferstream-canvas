@@ -15,6 +15,8 @@ import { fetchAutoDLWorkflow } from "./autodl";
 import { fitAuthHeaders } from "./fit/transport";
 import { createFitVideoTask, pollFitVideoTask, recoverFitVideo, waitFitVideo } from "./fit/video";
 import { isFitConfig } from "@/lib/fit-config";
+import { inferStreamVideoEnabled } from "@/lib/inferstream-image-access";
+import { createInferStreamVideoTask, pollInferStreamVideoTask, recoverInferStreamVideo, waitInferStreamVideo } from "./inferstream-video";
 import { isAgnesVideoV25Model, isCogVideoX3Model, isWan3VideoModel, modelKey, normalizeCogVideoX3Duration, supportsVideoAudioGeneration, videoDurationOptionsForModel } from "@/lib/video-model-capabilities";
 import { resolveMediaUrl, uploadMediaFile, uploadRemoteMediaToServer } from "@/services/file-storage";
 import { autoSyncToCloud, imageToDataUrl, resolveImageUrl } from "@/services/image-storage";
@@ -114,6 +116,7 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
 }
 
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] | VideoReferenceInput = [], onProgress?: VideoProgressHandler, options?: string | VideoTaskCreateOptions): Promise<CreatedVideoGenerationTask> {
+    if (inferStreamVideoEnabled() && !config.videoWorkflowRef) return createInferStreamVideoTask(config, prompt, normalizeVideoReferenceInput(references), normalizeVideoTaskCreateOptions(options).signal, onProgress);
     if (isFitConfig(config)) return createFitVideoTask(config, prompt, normalizeVideoReferenceInput(references), normalizeVideoTaskCreateOptions(options).signal, onProgress);
     const model = config.model || config.videoModel;
     const systemPrompt = (config.systemPrompts.video || config.systemPrompt).trim();
@@ -244,6 +247,7 @@ function normalizeVideoTaskCreateOptions(options?: string | VideoTaskCreateOptio
 }
 
 export async function pollCreatedVideoGenerationTask(config: AiConfig, task: VideoResponse, { startedAt = Date.now(), requestBody, initialDelayMs = 0, onProgress, onPoll }: { startedAt?: number; requestBody?: unknown; initialDelayMs?: number; onProgress?: VideoProgressHandler; onPoll?: (task: VideoResponse) => void } = {}) {
+    if (inferStreamVideoEnabled() && !task.workflowRef) return waitInferStreamVideo(task, { startedAt, initialDelayMs, onProgress, onPoll });
     if (isFitConfig(config)) return waitFitVideo(config, task, { startedAt, initialDelayMs, onProgress, onPoll });
     const model = config.model || config.videoModel;
     const pollId = videoPollId(model, task);
@@ -285,10 +289,12 @@ export async function pollCreatedVideoGenerationTask(config: AiConfig, task: Vid
 
 /** 成片本地丢了时重新取回（只支持 openai.fit 的任务；其他渠道返回 null）。 */
 export async function recoverGeneratedVideo(config: AiConfig, task: VideoResponse) {
+    if (inferStreamVideoEnabled() && !task.workflowRef) return recoverInferStreamVideo(task);
     return isFitConfig(config) ? recoverFitVideo(config, task) : null;
 }
 
 export async function pollVideoGenerationTaskStatus(config: AiConfig, task: VideoResponse, signal?: AbortSignal) {
+    if (inferStreamVideoEnabled() && !task.workflowRef) return pollInferStreamVideoTask(task, signal);
     if (isFitConfig(config)) return pollFitVideoTask(config, task, signal);
     if (task.translationSnapshot) return syncGeneratedVideo(await pollLocalTranslatedVideo(config,task,signal),config,true);
     const model = config.model || config.videoModel;

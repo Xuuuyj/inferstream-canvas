@@ -13,8 +13,8 @@
 	handle @admin {
 		respond 404
 	}
-	# Forward only model verification and image requests to the InferStream gateway.
-	@inferstream_image_api path /inferstream/v1/models /inferstream/v1/images/generations /inferstream/v1/images/edits
+	# Forward only model verification, image and video requests to the InferStream gateway.
+	@inferstream_image_api path /inferstream/v1/models /inferstream/v1/images/generations /inferstream/v1/images/edits /inferstream/v1/videos /inferstream/v1/videos/*
 	handle @inferstream_image_api {
 		uri strip_prefix /inferstream
 		reverse_proxy gateway:8080 {

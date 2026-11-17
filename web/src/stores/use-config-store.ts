@@ -6,7 +6,7 @@ import { persist } from "zustand/middleware";
 
 import { applyFitModels, fitChannel, fitKeyForModel, fitKeySet, hasLegacyStoredKey, migrateFitKeys, normalizeFitApiKey, normalizeFitConfig, withFitKeySlot, withFitManualKey, withoutBridgeFitKeys, withoutFitKeys } from "@/lib/fit-config";
 import { clearHostedUploadCache } from "@/lib/fit-generate/lib/upload-client";
-import { inferStreamImageModel, inferStreamImageToken } from "@/lib/inferstream-image-access";
+import { inferStreamImageModel, inferStreamToken, isInferStreamVideoModel } from "@/lib/inferstream-image-access";
 import { FIT_ORIGIN, directAIProviderForProtocol, isWorkflowProtocol, type DirectAIProvider, type ModelChannelProtocol } from "@/lib/model-channel";
 import type { WorkflowRef, WorkflowSummary } from "@/lib/workflow-channel";
 import { clearFitStudioCache, loadFitStudio } from "@/services/api/fit/catalog";
@@ -425,7 +425,10 @@ export const useConfigStore = create<ConfigStore>()(
             },
             isAiConfigReady: (config, model) => {
                 if (get().publicSettings?.auth?.inferStreamLogin === true && model === inferStreamImageModel) {
-                    return Boolean(inferStreamImageToken());
+                    return Boolean(inferStreamToken("image"));
+                }
+                if (get().publicSettings?.auth?.inferStreamLogin === true && model && isInferStreamVideoModel(model)) {
+                    return Boolean(inferStreamToken("video"));
                 }
                 return isAiConfigReady(config, model);
             },

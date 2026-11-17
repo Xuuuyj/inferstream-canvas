@@ -41,7 +41,7 @@ test("InferStream text and reference image generation use only the gateway token
     }) as typeof fetch;
     try {
         const config = { ...defaultConfig, model: inferStreamImageModel, count: "1", fitManualKey: "legacy-test-value" };
-        await assert.rejects(requestGeneration(config, "Create a forklift"), /InferStream API Token/);
+        await assert.rejects(requestGeneration(config, "Create a forklift"), /InferStream API Key/);
         assert.equal(calls.length, 0);
         assert.equal(useConfigStore.getState().isAiConfigReady(config, config.model), false);
         await verifyInferStreamImageToken("gateway-test-key");

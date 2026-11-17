@@ -15,6 +15,7 @@ import { STORAGE_SYNC_FAILED_EVENT, defaultUserStorageProvider, defaultUserWebDA
 import { defaultConfig, useConfigStore, type AiConfig } from "@/stores/use-config-store";
 import { useFitBridgeStore } from "@/stores/use-fit-bridge-store";
 import { useUserStore } from "@/stores/use-user-store";
+import { autoImportInferStreamKeys, inferStreamDefaultVideoModel, isInferStreamVideoModel } from "@/lib/inferstream-image-access";
 
 export function ClientRootInit({ children }: { children: ReactNode }) {
     const { message, modal } = App.useApp();
@@ -33,6 +34,16 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     const isLoginPage = pathname === "/login" || pathname === "/admin/login";
     const accountSessionRef = useRef({ token, userId: user?.id || "" });
 
+    // InferStream 登录后自动从账号导入生图、视频用的 Key（已有的不动）
+    useEffect(() => {
+        if (publicSettings?.auth?.inferStreamLogin === true && user?.id) void autoImportInferStreamKeys(user.id);
+    }, [publicSettings, user?.id]);
+    // InferStream 模式只有 InferStream 的视频模型：旧的 openai.fit 视频模型名换成默认视频模型（画布节点和视频工作台共用这个设置）
+    const videoModel = useConfigStore((state) => state.config.videoModel);
+    const videoWorkflowRef = useConfigStore((state) => state.config.videoWorkflowRef);
+    useEffect(() => {
+        if (publicSettings?.auth?.inferStreamLogin === true && !videoWorkflowRef && !isInferStreamVideoModel(videoModel || "")) updateConfig("videoModel", inferStreamDefaultVideoModel);
+    }, [publicSettings, videoModel, videoWorkflowRef, updateConfig]);
     useEffect(() => {
         const onSyncFailed = (event: Event) => {
             const detail = (event as CustomEvent<string>).detail;

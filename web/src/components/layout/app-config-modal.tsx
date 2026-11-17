@@ -4,7 +4,7 @@ import { Alert, App, Button, Collapse, Form, Input, Modal, Radio, Select, Switch
 import { useEffect, useRef, useState } from "react";
 
 import { GrokTtsVoiceSelect } from "@/components/grok-tts-voice-select";
-import { inferStreamImageModel, inferStreamImageToken, saveInferStreamImageToken, verifyInferStreamImageToken } from "@/lib/inferstream-image-access";
+import { InferStreamKeySettings } from "@/components/layout/inferstream-key-settings";
 import { usePathname } from "next/navigation";
 
 import { FitAccountSection, FitKeySlots, FitManualKeyField } from "@/components/layout/fit-key-slots";
@@ -54,9 +54,6 @@ export function AppConfigModal() {
     const [storageUsageText, setStorageUsageText] = useState("");
     const [webDAVStorageUsageText, setWebDAVStorageUsageText] = useState("");
     const pathname = usePathname();
-    const [imageTokenInput, setImageTokenInput] = useState("");
-    const [imageTokenBusy, setImageTokenBusy] = useState(false);
-    const [imageTokenReady, setImageTokenReady] = useState(false);
     const publicSettings = useConfigStore((state) => state.publicSettings);
     const inferStreamLogin = publicSettings?.auth?.inferStreamLogin === true;
     const legacyTokenSettings = publicSettings !== null && !inferStreamLogin;
@@ -70,32 +67,6 @@ export function AppConfigModal() {
     const refreshFitModels = useConfigStore((state) => state.refreshFitModels);
     const token = useUserStore((state) => state.token);
     const user = useUserStore((state) => state.user);
-    useEffect(() => {
-        setImageTokenInput("");
-        setImageTokenReady(isConfigOpen && !!user?.id && !!inferStreamImageToken(user.id));
-    }, [isConfigOpen, user?.id]);
-
-    const connectImageToken = async () => {
-        const value = imageTokenInput.trim();
-        const userId = user?.id;
-        if (!userId || !value || imageTokenBusy) return false;
-        setImageTokenBusy(true);
-        try {
-            await verifyInferStreamImageToken(value);
-            if (useUserStore.getState().user?.id !== userId) return false;
-            saveInferStreamImageToken(userId, value);
-            setImageTokenInput("");
-            setImageTokenReady(true);
-            message.success("InferStream 生图已连接。");
-            return true;
-        } catch (error) {
-            message.error(error instanceof Error ? error.message : "连接 InferStream 失败。");
-            return false;
-        } finally {
-            setImageTokenBusy(false);
-        }
-    };
-
     const modelConfig = useEffectiveConfig();
     const canUseUserStorageProvider = allowUserStorageProvider;
     const glmTts = isGlmTtsModel(config.audioModel);
@@ -177,7 +148,6 @@ export function AppConfigModal() {
         }
         setSavingConfig(true);
 		try {
-            if (inferStreamLogin && imageTokenInput.trim() && !await connectImageToken()) return;
             if (legacyTokenSettings && hasAnyFitKey(config) && !config.fitTokenCheckedAt) await refreshFitModels();
             const saved = useConfigStore.getState().config;
 			if (token) await syncUserModelConfig(token, saved);
@@ -250,7 +220,7 @@ export function AppConfigModal() {
             onCancel={() => setConfigDialogOpen(false)}
             styles={{ body: { maxHeight: "72vh", overflowY: "auto", paddingRight: 18 } }}
             footer={
-                <Button type="primary" loading={savingConfig} disabled={imageTokenBusy} onClick={() => void finishConfig()}>
+                <Button type="primary" loading={savingConfig} onClick={() => void finishConfig()}>
                     完成
                 </Button>
             }
@@ -265,19 +235,7 @@ export function AppConfigModal() {
                             ) : (
                                 <Button size="small" href={`/login?redirect=${encodeURIComponent(pathname)}`}>用 InferStream 登录</Button>
                             )}
-                            {user ? <>
-                                <div className="text-sm">图片生成 · {inferStreamImageModel}{imageTokenReady ? " · 已连接" : ""}</div>
-                                <div className="text-xs text-stone-500">填写中转站的 API Token 后，生图和参考图编辑会在 InferStream 计费。验证后记在当前浏览器中，退出登录或断开时清除。</div>
-                                <div className="flex flex-wrap gap-2">
-                                    <Input.Password className="min-w-56 flex-1" aria-label="InferStream API Token" placeholder="粘贴 InferStream API Token" autoComplete="off" value={imageTokenInput} onChange={(event) => setImageTokenInput(event.target.value)} />
-                                    <Button loading={imageTokenBusy} disabled={!imageTokenInput.trim()} onClick={() => void connectImageToken()}>验证并连接</Button>
-                                    {imageTokenReady ? <Button disabled={imageTokenBusy} onClick={() => {
-                                        saveInferStreamImageToken(user.id, "");
-                                        setImageTokenReady(false);
-                                    }}>断开</Button> : null}
-                                </div>
-                                <a className="text-sm underline" href="https://www.inferstream.cn/console/api-keys" target="_blank" rel="noreferrer">管理 InferStream API Token</a>
-                            </> : null}
+                            {user ? <InferStreamKeySettings userId={user.id} open={isConfigOpen} /> : null}
                             {hasAnyFitKey(config) ? <Button size="small" onClick={clearFitKeys}>清除本机旧令牌</Button> : null}
                         </section>
                     ) : null}
