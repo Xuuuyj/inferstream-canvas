@@ -25,11 +25,9 @@
 - [开源协议](business/license.md)
 - [商务合作](business/business.md)
 
-## 赞助支持
-
-- [打赏支持](support/donate.md)
-
 ## 项目进度
+
+内部文档，不随源码包发布（.gitattributes 设了 export-ignore），/source/ 下载的源码包里这两个链接打不开。
 
 - [待测试](progress/pending-test.md)
 - [TODO](progress/todo.md)
@@ -37,4 +35,4 @@
 ## 说明
 
 - 未登录时画布项目和“我的素材”保存在浏览器本地；登录且账号同步可用时，会同步保存到账号/云端。
-- 本地直连模式下，AI API Key 保存在浏览器本地，并由前端直接请求 OpenAI 兼容接口。
+- 用户的 openai.fit 令牌只存在浏览器 localStorage，生成请求由浏览器直接发往 https://openai.fit；画布服务器不保存令牌，也不存生成的媒体。

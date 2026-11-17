@@ -13,6 +13,8 @@ description: 前后端分开启动时的本地开发方式
 cp .env.example .env
 ```
 
+然后取消 `.env` 末尾「本机开发」段的注释（它把 `APP_ENV` 设成 `dev`，并把生产段的占位符换成开发值；`go run .` 和 `docker-compose.local.yml` 都要这样做），本地运行必须这样做，只改 `APP_ENV` 起不来。`APP_ENV` 只认 `dev` 和 `production`，不写就是 `production`：这时 JWT_SECRET、管理员账号密码不合要求会拒绝启动，而且必须配置 PUBLIC_HOST 和 SERVER_PUBLIC_IPS；写成其他值也会拒绝启动。
+
 默认配置下：
 
 - 后端端口是 `8080`

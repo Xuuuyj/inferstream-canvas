@@ -5,46 +5,40 @@ description: 用最少步骤把无限画布跑起来
 
 # 快速开始
 
-如果你只是想先把项目跑起来，优先使用 Docker。
+## 本地启动
 
-## Docker 启动
-
-```bash
-git clone git@github.com:tigerowo/infinite-canvas.git
-cd infinite-canvas
-cp .env.example .env
-docker compose up -d
-```
-
-启动后访问：
-
-```text
-http://localhost:3000
-```
-
-默认管理员账号：
-
-```text
-用户名：admin
-密码：.env 中的 ADMIN_PASSWORD
-```
-
-## 本地构建镜像启动
-
-如果你需要基于当前源码本地构建镜像：
+先复制配置并取消 `.env` 末尾「本机开发」段的注释（它把 `APP_ENV` 设成 `dev`，并把生产段的占位符换成开发值）：
 
 ```bash
 cp .env.example .env
+```
+
+用 Docker 本地构建：
+
+```bash
 docker compose -f docker-compose.local.yml up -d --build
 ```
 
-## 首次使用建议
+或者不用 Docker：
 
-- 先打开右上角配置弹窗，填入自己的 `Base URL`、`API Key` 和模型名。
-- 如果使用后台渠道模式，再去管理后台补充系统模型与渠道配置。
-- 如果需要提示词仓库内容，可进入 `/admin/prompts` 拉取或同步。
+```bash
+go run .
+
+# 另开一个终端窗口
+cd web
+bun install
+bun run dev
+```
+
+启动后访问 `http://localhost:3000`。正式部署见 [Docker 部署](docker.md)。
+
+## 首次使用
+
+- 打开右上角设置，填入 openai.fit 令牌（可点「去 openai.fit 选令牌」），再点「验证并同步模型」；也可以从 openai.fit 令牌列表点「聊天 → 无限画布」直接带入。
+- 模型列表按令牌能用的模型和 openai.fit 公开目录自动同步，图片和视频的参数按 openai.fit 卡片显示。
+- 需要提示词仓库内容时，管理员可进入 `/admin/prompts` 手动同步。
 
 ## 说明
 
-- 当前画布项目和“我的素材”主要保存在浏览器本地，不支持云同步。
-- 本地直连模式下，AI API Key 保存在浏览器本地，并由前端直接请求 OpenAI 兼容接口。
+- 未登录时画布项目和「我的素材」保存在浏览器本地；登录且账号同步可用时会同步保存到账号。生成的图片、视频、音频只保存在浏览器里，换设备或清缓存会丢，要及时下载。
+- openai.fit 令牌只存在浏览器 localStorage，生成请求由浏览器直接发往 https://openai.fit；画布服务器不保存令牌。

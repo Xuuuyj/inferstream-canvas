@@ -1,5 +1,7 @@
 # AGENTS.md
 
+> 本站（canvas.openai.fit）交接总览在 `docs/fit/HANDOFF.md`（内部文档，不随源码包发布），接手先读它。
+
 本文档用于约束本项目中的 AI / 自动化开发行为。开发时优先遵循本文件，其次遵循用户当前消息。
 
 ## 基本原则
@@ -8,7 +10,7 @@
 - 写代码保持最少行数，能简单实现就不要引入复杂抽象。
 - 标准格式、协议、解析、压缩、加密、日期等通用能力优先使用成熟稳定的库，不要手写底层实现，除非用户明确要求或项目已有实现必须沿用。
 - 不要为了“兼容更多场景”写大量分支，只实现当前明确需要的功能。
-- 项目尚未上线，不需要兼容旧数据；表结构或字段调整时直接按新设计修改，不写旧字段兼容、数据迁移兜底或删除旧表的清理逻辑，除非用户明确要求。
+- 项目尚未上线，不需要兼容旧数据；表结构或字段调整时直接按新设计修改，不写旧字段兼容、数据迁移兜底或删除旧表的清理逻辑，除非用户明确要求。例外：画布 2026-11-02 已上线，浏览器里旧版存的那一把 openai.fit 令牌（`apiKey`）要迁移成手动令牌（`lib/fit-config.ts` 的 `migrateFitKeys`）。
 - 每次写完代码，不需要检查语法，不需要执行构建，用户会自己做。
 - 不要改无关文件，不要顺手重构。
 - 任何文件编辑、改动、删除或格式化前，必须先询问用户是否允许；只有得到明确同意后才能修改。
@@ -89,6 +91,12 @@
 
 ## 项目注意事项
 
-- 未登录时画布项目和“我的素材”保存在浏览器本地；登录且账号同步可用时会同步保存到账号/云端，文档中不要忽略未登录本地保存场景。
-- 当前 AI API Key 存在浏览器本地，并由前端直接请求 OpenAI 兼容接口；涉及安全说明时要写清楚。
+- 未登录时画布项目和“我的素材”保存在浏览器本地；登录且账号同步可用时会同步保存到账号/云端，文档中不要忽略未登录本地保存场景。第一期服务器不存媒体（不开服务端对象存储）：生成的图片、视频、音频只保存在用户浏览器里，换设备或清缓存会丢，文档和界面说明不要承诺云端保存媒体。
+- 用户的 openai.fit 令牌只存在浏览器 localStorage，只发往 https://openai.fit；画布服务器不保存令牌，账号同步的模型配置在上传前和服务端存库前都会剔除令牌、渠道和地址；涉及安全说明时要写清楚。
+- 「用 openai.fit 登录」走 openai.fit 桥接页：画布页面在需要时（画布要登录、三把令牌没选全、设置弹窗开着、刚去 openai.fit 登录还没回来；`/admin` 和点过「退出登录」后不挂）放一个隐藏 iframe `https://openai.fit/canvas/bridge`，只收 origin 是 `https://openai.fit`、source 是这个 iframe 的消息，发消息的 targetOrigin 写死 `https://openai.fit`（协议见 `web/src/lib/fit-bridge.ts`，和 fit 的 `controller/canvas_bridge.js` 逐字一致）。桥接页给的一次性登录码带 state 和 PKCE（verifier 只在内存里），画布后端只拿 code 加 verifier 去 openai.fit 换身份，不经手令牌，换取接口也不返回令牌。令牌是桥接页取的（记着 `fitAccount`）时，每次打开页面挂一下桥接页发 `ping`（只看 fit 登录提示 cookie、不发 fit 请求），fit 退出了就清掉这三把（手动令牌不动），每 12 小时用一次 hello 核对 fit 账号；fit 换了人时原账号的令牌马上清掉，改用新账号的令牌和画布账号必须先弹窗问；静默登录画布前本机有没同步过这个 fit 账号的画布项目也先问（`asksBeforeProjectSync`）。这几处不要改成静默。
+- 画布同源的任何脚本（页面上的 XSS、`/director` 的构建产物、依赖包）都能驱动桥接页，用户在 fit 登录着时能经它取到用户令牌的完整 key、新建令牌（fit 按用户限额，见 fit 仓库 docs/canvas-bridge.md）。所以画布源上不能引入不受控的第三方脚本，换 `/director` 产物、加依赖都按「能拿到访客全部 fit 令牌」审。
+- 令牌分三把：视频（含上传参考素材、轮询、下载成片）、图片、文本（含语音），存在 `fitKeys` 的三个槽位（槽位里的密钥字段也叫 `apiKey`），另有手动令牌 `fitManualKey`（填了三类都用它）和 `fitAccount`（令牌属于哪个 fit 用户）。这些都只存浏览器、永不上传（前端 `SYNC_SECRET_KEYS`、后端 `modelConfigSecretKeys` 都剔除）。发请求一律按模型类型取令牌（`fitKeyFor` / `fitKeyForModel`，渠道里不存令牌）；视频任务记下提交时用的是哪把（`fitKeyRef`，是令牌 id 不是密钥），轮询、下载用同一把。
 - Docker 静态资源路径目前仍是待办项，文档中不要过度承诺生产部署已经完全验证。
+- 内网地址和内部 Gitea 仓库的地址只写在不进源码包的文件里（`deploy/private/`、`docs/fit/PLAN.md`、`docs/progress/*`，见 `.gitattributes` 的 export-ignore）；进源码包的文件（包括 `deploy/` 下的文档、本文件、README）只写「内部 Gitea 仓库，地址见 deploy/private/README.md」。发版时源码包闸门会拦 `192.168.*` 这类地址。
+- 3D 导演台业主 2026-11-02 开放（`web/src/constant/features.ts` 的 `DIRECTOR_ENABLED=true`，Caddy 不拦 /director）。要关就两边一起改：开关改 false，并在 `deploy/Caddyfile` 加 `@director` 回 404。`web/public/director/` 只有上游构建产物，换新产物时先跑 `features.test.ts` 的外部地址名单（它和画布同源，能读到浏览器里的令牌）。
+- `web/src/lib/fit-generate/` 下除 `shims/`、`__tests__/` 外是 openai.fit 在线生成台的同步副本（含模型选择器用的价格提示 `components/`、模型广场价格库 `pricing/` 和币种格式化 `shared/`，价格一律用它们算，不在画布另写），禁止手改、不要格式化；fit 契约变了用 `cd web && bun run sync:fit --repo <线上源码提交的干净检出>` 更新，发版前跑 `FIT_REPO=<fit 仓库> bun run check:fit`（不带 FIT_REPO 只核对哈希，不算数；release.py 设了 FIT_REPO 时会自己跑，不通过就拒绝）。同步时按内部词表 `deploy/private/source-redactions.json`（不进源码包）删注释、改标识符名，sync:fit 和 check:fit 都需要这份词表；词表改了要重新 sync:fit。

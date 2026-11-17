@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>token-connect</title>
+<style>
+@font-face { font-family: Geist; src: url(geist-latin-wght-normal.woff2) format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1280px; height: 720px; overflow: hidden; }
+body { background: #0a0a0a; color: #fafafa; position: relative;
+       font-family: Geist, "Noto Sans SC", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; }
+.mono { font-family: Consolas, "Noto Sans SC", monospace; }
+svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.abs { position: absolute; }
+
+/* left column */
+#left { position: absolute; left: 72px; top: 0; width: 340px; height: 720px; }
+#left h1 { position: absolute; top: 132px; font-size: 40px; line-height: 1.25; font-weight: 500; letter-spacing: -0.01em; }
+#left .glyph { position: absolute; top: 76px; }
+.step { position: absolute; left: 0; width: 340px; padding-left: 22px; }
+.step .bar { position: absolute; left: 0; top: 4px; width: 2px; height: 84px; background: #262626; }
+.step .bar i { position: absolute; left: 0; top: 0; width: 2px; height: 0; background: #fafafa; }
+.step .no { font-size: 16px; color: #737373; letter-spacing: 0.06em; }
+.step .tt { margin-top: 6px; font-size: 29px; font-weight: 500; color: #525252; white-space: nowrap; }
+.step .ds { margin-top: 8px; font-size: 17px; color: #525252; white-space: nowrap; }
+#left .foot { position: absolute; top: 640px; font-size: 17px; color: #737373; }
+
+/* browser */
+#win { position: absolute; left: 452px; top: 70px; width: 764px; height: 580px; border-radius: 14px; overflow: hidden;
+       background: #fff; box-shadow: 0 30px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.08); }
+#bar { position: absolute; left: 0; top: 0; width: 100%; height: 44px; background: #f5f5f4; border-bottom: 1px solid #e7e5e4;
+       display: flex; align-items: center; padding: 0 16px; gap: 8px; }
+#bar .dot { width: 11px; height: 11px; border-radius: 50%; background: #d6d3d1; }
+#url { margin-left: 18px; height: 28px; flex: 1; border-radius: 8px; background: #fff; border: 1px solid #e7e5e4;
+       display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 14px; color: #292524; overflow: hidden; white-space: nowrap; }
+#url svg { width: 13px; height: 13px; color: #78716c; }
+#urlHash { background: rgba(28,25,23,.1); border-radius: 3px; }
+.page { position: absolute; left: 0; top: 44px; width: 764px; height: 536px; }
+
+/* page 1: fit keys */
+#p1 { background: #fff; color: #0a0a0a; }
+#p1 header { height: 52px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; padding: 0 24px; gap: 8px; }
+#p1 header b { font-size: 15px; font-weight: 600; }
+#p1 header nav { margin-left: auto; display: flex; gap: 20px; font-size: 13px; color: #737373; align-items: center; }
+#p1 header .av { width: 26px; height: 26px; border-radius: 50%; background: #e5e5e5; }
+#p1 main { padding: 24px 28px; position: relative; }
+#p1 h2 { font-size: 22px; font-weight: 600; }
+#p1 main > p { margin-top: 6px; font-size: 13px; color: #737373; }
+table { margin-top: 20px; width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; font-weight: 500; color: #737373; font-size: 13px; height: 38px; border-bottom: 1px solid #ededed; }
+td { height: 54px; border-bottom: 1px solid #f3f3f3; }
+td .st { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+td .st i { width: 6px; height: 6px; border-radius: 50%; background: #0a0a0a; }
+td .grp { font-size: 12px; border: 1px solid #e5e5e5; border-radius: 999px; padding: 2px 9px; color: #404040; }
+td.act { text-align: right; white-space: nowrap; }
+.ib { display: inline-flex; width: 30px; height: 30px; border-radius: 7px; align-items: center; justify-content: center; color: #404040; vertical-align: middle; }
+#more1 { background: transparent; }
+.menu { position: absolute; background: #fff; border: 1px solid #e7e7e7; border-radius: 10px; padding: 5px;
+        box-shadow: 0 12px 32px rgba(0,0,0,.14); font-size: 14px; color: #171717; opacity: 0; transform-origin: top right; }
+.menu .it { height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 6px; white-space: nowrap; }
+.menu .it .k { margin-left: auto; color: #a3a3a3; display: flex; }
+.menu .sep { height: 1px; background: #f0f0f0; margin: 4px 2px; }
+
+/* page 2: canvas (light canvas theme) */
+#p2 { background-color: #f4f2ed; background-image: radial-gradient(rgba(68,64,60,.28) 1px, transparent 1px); background-size: 18px 18px;
+      color: #292524; opacity: 0; }
+#p2 header { position: absolute; left: 0; top: 0; width: 100%; height: 52px; display: flex; align-items: center; padding: 0 22px; gap: 8px;
+             background: rgba(244,242,237,.92); border-bottom: 1px solid #e2dfd6; }
+#p2 header b { font-size: 15px; font-weight: 500; }
+#status { margin-left: auto; position: relative; width: 170px; height: 30px; }
+#status > div { position: absolute; right: 0; top: 0; height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 12px;
+                border-radius: 8px; font-size: 13px; white-space: nowrap; }
+#stNo { border: 1px solid #d6d3ca; color: #57534e; }
+#stOk { background: #1c1917; color: #fafaf9; opacity: 0; }
+#stOk svg { width: 13px; height: 13px; }
+#toast { position: absolute; left: 50%; top: 66px; display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid #e7e5df;
+         border-radius: 10px; padding: 10px 16px 10px 12px; box-shadow: 0 10px 30px rgba(28,25,23,.12); font-size: 14px; white-space: nowrap; opacity: 0; }
+#toast .c { width: 20px; height: 20px; border-radius: 50%; background: #1c1917; color: #fff; display: flex; align-items: center; justify-content: center; }
+#toast .c svg { width: 12px; height: 12px; stroke-width: 3; }
+#toast small { color: #78716c; font-size: 12px; margin-left: 6px; }
+.node { position: absolute; opacity: 0; }
+.node .lb { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #57534e; height: 22px; white-space: nowrap; }
+.node .lb svg { width: 13px; height: 13px; }
+.node .lb .m { margin-left: auto; font-size: 11px; color: #78716c; border: 1px solid #d6d3ca; border-radius: 999px; padding: 0 7px; background: #fbfaf7; }
+.node .bd { background: #fbfaf7; border: 1px solid #d6d3ca; border-radius: 12px; overflow: hidden; position: relative; }
+#nText .bd { padding: 12px 14px; font-size: 13px; line-height: 1.65; height: 128px; color: #292524; }
+#caret { display: inline-block; width: 1px; height: 14px; background: #292524; vertical-align: -2px; margin-left: 1px; }
+.art { position: absolute; inset: 0; opacity: 0; overflow: hidden; }
+.art svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.shim { position: absolute; inset: 0; background: #ece9e2; overflow: hidden; }
+.shim i { position: absolute; top: 0; bottom: 0; width: 60%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.75), transparent); }
+.shim span { position: absolute; left: 0; right: 0; bottom: 12px; text-align: center; font-size: 12px; color: #78716c; }
+.prog { position: absolute; left: 12px; right: 12px; bottom: 10px; height: 3px; border-radius: 3px; background: rgba(28,25,23,.12); overflow: hidden; }
+.prog i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: #1c1917; }
+#play { position: absolute; left: 50%; top: 50%; width: 38px; height: 38px; margin: -19px 0 0 -19px; border-radius: 50%;
+        background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; color: #fff; opacity: 0; }
+#play svg { width: 16px; height: 16px; fill: #fff; stroke: none; margin-left: 2px; }
+#edges { position: absolute; left: 0; top: 0; width: 764px; height: 536px; overflow: visible; }
+#edges path { fill: none; stroke: #a8a29e; stroke-width: 1.5; }
+#tools { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; gap: 4px; padding: 5px;
+         background: rgba(251,250,247,.96); border: 1px solid #d6d3ca; border-radius: 12px; }
+#tools div { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #57534e; }
+#tools div.on { background: #e7e5df; color: #292524; }
+
+/* overlays */
+#chip { position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border-radius: 999px;
+        background: #1c1917; color: #fafaf9; font-size: 13px; opacity: 0; box-shadow: 0 8px 20px rgba(0,0,0,.25); white-space: nowrap; }
+#chip svg { width: 13px; height: 13px; }
+#cursor { position: absolute; left: 0; top: 0; width: 22px; height: 22px; opacity: 0; filter: drop-shadow(0 2px 3px rgba(0,0,0,.3)); }
+#ring { position: absolute; width: 36px; height: 36px; margin: -18px 0 0 -18px; border-radius: 50%; border: 2px solid rgba(0,0,0,.35); opacity: 0; }
+#endcard { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; opacity: 0; background: #0a0a0a; }
+#endcard h2 { margin-top: 34px; font-size: 56px; font-weight: 500; letter-spacing: -0.01em; }
+#endcard p { margin-top: 18px; font-size: 24px; color: #a3a3a3; }
+#black { position: absolute; inset: 0; background: #0a0a0a; opacity: 1; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="glyph" viewBox="20 29.62 60 40.76"><path d="M20.0 29.62H47.17V37.09H27.47V45.92H41.74V53.39H27.47V70.38H20.0Z"/><path d="M53.96 29.62H62.33L80.0 70.38H71.63Z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+    <symbol id="i-pen" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5"/></symbol>
+    <symbol id="i-type" viewBox="0 0 24 24"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></symbol>
+    <symbol id="i-video" viewBox="0 0 24 24"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+    <symbol id="i-pointer" viewBox="0 0 24 24"><path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"/></symbol>
+    <symbol id="i-hand" viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0v1"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+    <!-- monochrome "generated" still: rainy rooftop city at night (pure vector, no real generation) -->
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3f3f46"/><stop offset=".62" stop-color="#18181b"/><stop offset="1" stop-color="#09090b"/></linearGradient>
+    <radialGradient id="moon" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fafafa"/><stop offset=".55" stop-color="#e4e4e7"/><stop offset="1" stop-color="#e4e4e7" stop-opacity="0"/></radialGradient>
+    <pattern id="win" width="10" height="12" patternUnits="userSpaceOnUse"><rect x="3" y="3" width="3" height="4" fill="#d4d4d8" opacity=".55"/></pattern>
+    <pattern id="rain" width="14" height="40" patternUnits="userSpaceOnUse" patternTransform="rotate(14)"><rect x="6" y="0" width="1" height="16" fill="#e4e4e7" opacity=".22"/></pattern>
+    <symbol id="city" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid slice">
+      <rect width="400" height="300" fill="url(#sky)"/>
+      <circle cx="300" cy="78" r="46" fill="url(#moon)" opacity=".9"/>
+      <g fill="#27272a"><rect x="0" y="150" width="58" height="150"/><rect x="66" y="118" width="44" height="182"/><rect x="118" y="170" width="70" height="130"/>
+        <rect x="196" y="96" width="52" height="204"/><rect x="256" y="160" width="60" height="140"/><rect x="324" y="128" width="76" height="172"/></g>
+      <g fill="url(#win)"><rect x="4" y="160" width="50" height="80"/><rect x="70" y="128" width="36" height="110"/><rect x="200" y="106" width="44" height="120"/><rect x="330" y="140" width="64" height="90"/></g>
+      <rect x="0" y="236" width="400" height="64" fill="#0b0b0d"/>
+      <g fill="#e4e4e7" opacity=".18"><rect x="16" y="246" width="30" height="2"/><rect x="88" y="258" width="22" height="2"/><rect x="214" y="250" width="26" height="2"/><rect x="300" y="262" width="34" height="2"/></g>
+      <ellipse cx="300" cy="268" rx="34" ry="5" fill="#fafafa" opacity=".16"/>
+      <path d="M150 236 c8 -30 26 -44 36 -44 c10 0 16 10 16 22 l2 22 z" fill="#09090b"/>
+      <circle cx="186" cy="182" r="11" fill="#09090b"/>
+      <rect width="400" height="300" fill="url(#rain)"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div id="left">
+  <svg class="glyph" width="44" height="30" fill="#fafafa"><use href="#glyph"/></svg>
+  <h1>一个令牌，<br>接入无限画布</h1>
+  <div class="step" id="s1" style="top:272px"><div class="bar"><i></i></div><div class="no">01</div><div class="tt">令牌页点「聊天」</div><div class="ds">openai.fit/keys 的令牌菜单</div></div>
+  <div class="step" id="s2" style="top:392px"><div class="bar"><i></i></div><div class="no">02</div><div class="tt">选「无限画布」</div><div class="ds">令牌自动带入，链接随即清除</div></div>
+  <div class="step" id="s3" style="top:512px"><div class="bar"><i></i></div><div class="no">03</div><div class="tt">直接开做</div><div class="ds">文本、图片、视频模型自动同步</div></div>
+  <div class="foot mono">canvas.openai.fit</div>
+</div>
+
+<div id="win">
+  <div id="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    <div id="url" class="mono"><svg class="i"><use href="#i-lock"/></svg><span><span id="urlHost">openai.fit/keys</span><span id="urlHash"></span></span></div>
+  </div>
+
+  <div class="page" id="p1">
+    <header><svg width="24" height="16" fill="#0a0a0a"><use href="#glyph"/></svg><b>openai.fit</b>
+      <nav><span>模型广场</span><span>文档</span><span>控制台</span><span class="av"></span></nav></header>
+    <main>
+      <h2>API 密钥</h2>
+      <p>令牌可以一键带进常用应用</p>
+      <table>
+        <tr><th style="width:150px">名称</th><th style="width:104px">状态</th><th style="width:196px">密钥</th><th style="width:120px">分组</th><th></th></tr>
+        <tr id="row1"><td>画布令牌</td><td><span class="st"><i></i>已启用</span></td><td class="mono">sk-••••••••7c2e</td><td><span class="grp">默认分组</span></td>
+          <td class="act"><span class="ib"><svg class="i"><use href="#i-pen"/></svg></span><span class="ib" id="more1"><svg class="i"><use href="#i-more"/></svg></span></td></tr>
+        <tr><td>漫剧批量</td><td><span class="st"><i></i>已启用</span></td><td class="mono">sk-••••••••a91d</td><td><span class="grp">默认分组</span></td>
+          <td class="act"><span class="ib"><svg class="i"><use href="#i-pen"/></svg></span><span class="ib"><svg class="i"><use href="#i-more"/></svg></span></td></tr>
+        <tr><td>Codex</td><td><span class="st"><i></i>已启用</span></td><td class="mono">sk-••••••••5b08</td><td><span class="grp">默认分组</span></td>
+          <td class="act"><span class="ib"><svg class="i"><use href="#i-pen"/></svg></span><span class="ib"><svg class="i"><use href="#i-more"/></svg></span></td></tr>
+      </table>
+    </main>
+    <div class="menu" id="menu" style="width:188px">
+      <div class="it">复制密钥<span class="k"><svg class="i"><use href="#i-copy"/></svg></span></div>
+      <div class="it">复制连接信息<span class="k"><svg class="i"><use href="#i-link"/></svg></span></div>
+      <div class="sep"></div>
+      <div class="it" id="miChat"><svg class="i" style="width:14px;height:14px"><use href="#i-left"/></svg>聊天<span class="k"><svg class="i"><use href="#i-chat"/></svg></span></div>
+      <div class="sep"></div>
+      <div class="it">删除<span class="k"><svg class="i"><use href="#i-trash"/></svg></span></div>
+    </div>
+    <div class="menu" id="sub" style="width:150px">
+      <div class="it" id="miCanvas"><svg width="18" height="12" fill="#171717"><use href="#glyph"/></svg>无限画布</div>
+    </div>
+  </div>
+
+  <div class="page" id="p2">
+    <svg id="edges"><path id="e1"/><path id="e2"/></svg>
+    <div class="node" id="nText" style="left:30px;top:104px;width:208px">
+      <div class="lb"><svg class="i"><use href="#i-type"/></svg>文本</div>
+      <div class="bd"><span id="prompt"></span><span id="caret"></span></div>
+    </div>
+    <div class="node" id="nImg" style="left:282px;top:84px;width:186px">
+      <div class="lb"><svg class="i"><use href="#i-image"/></svg>图片<span class="m">gpt-image-2</span></div>
+      <div class="bd" style="height:248px"><div class="shim" id="shimImg"><i></i><span>生成中…</span></div>
+        <div class="art" id="artImg"><svg viewBox="0 0 186 248" preserveAspectRatio="xMidYMid slice"><use href="#city" x="-70" y="0" width="326" height="248"/></svg></div></div>
+    </div>
+    <div class="node" id="nVid" style="left:508px;top:122px;width:228px">
+      <div class="lb"><svg class="i"><use href="#i-video"/></svg>视频<span class="m">seedance-2.5-omni</span></div>
+      <div class="bd" style="height:128px"><div class="shim" id="shimVid"><i></i><span>生成中…</span></div>
+        <div class="art" id="artVid"><svg viewBox="0 0 228 128" preserveAspectRatio="xMidYMid slice"><g id="vidZoom"><use href="#city" x="0" y="-22" width="228" height="171"/></g></svg>
+          <div id="play"><svg class="i"><use href="#i-play"/></svg></div></div>
+        <div class="prog" id="progVid"><i></i></div></div>
+    </div>
+    <div id="tools"><div class="on"><svg class="i"><use href="#i-pointer"/></svg></div><div><svg class="i"><use href="#i-hand"/></svg></div>
+      <div><svg class="i"><use href="#i-type"/></svg></div><div><svg class="i"><use href="#i-image"/></svg></div><div><svg class="i"><use href="#i-video"/></svg></div><div><svg class="i"><use href="#i-plus"/></svg></div></div>
+    <div id="toast"><span class="c"><svg class="i"><use href="#i-check"/></svg></span>已连接 openai.fit：画布令牌<small>模型已同步</small></div>
+    <header><svg width="24" height="16" fill="#1c1917"><use href="#glyph"/></svg><b>无限画布</b>
+      <div id="status"><div id="stNo">填写令牌</div><div id="stOk"><svg class="i"><use href="#i-check"/></svg>openai.fit 已连接</div></div></header>
+  </div>
+</div>
+
+<div id="chip" class="mono"><svg class="i"><use href="#i-key"/></svg>sk-••••7c2e</div>
+<svg id="cursor" viewBox="0 0 24 24"><path d="M4 2.5 L4 19.5 L8.6 15.3 L11.6 22 L14.6 20.7 L11.7 14.1 L18 14.1 Z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg>
+<div id="ring"></div>
+
+<div id="endcard">
+  <svg width="82" height="56" fill="#fafafa"><use href="#glyph"/></svg>
+  <h2>令牌一键接入无限画布</h2>
+  <p>openai.fit/keys&nbsp;&nbsp;→&nbsp;&nbsp;聊天&nbsp;&nbsp;→&nbsp;&nbsp;无限画布</p>
+</div>
+<div id="black"></div>
+
+<script>
+const T = 14.5;
+const PROMPT = "雨夜的天台，少女回头一笑，霓虹倒映在积水里，镜头缓缓推近";
+const HASH = "/#apiKey=sk-••••7c2e&baseUrl=https://openai.fit";
+const $ = (id) => document.getElementById(id);
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const outC = (p) => 1 - Math.pow(1 - p, 3);
+const inOut = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+const lerp = (a, b, p) => a + (b - a) * p;
+let P = {};
+
+function center(el, dx = 0, dy = 0) {
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2 + dx, y: r.top + r.height / 2 + dy };
+}
+
+function init() {
+  // place menus from real layout
+  const p1 = $("p1").getBoundingClientRect();
+  const more = $("more1").getBoundingClientRect();
+  const menu = $("menu");
+  menu.style.left = more.right - p1.left - 188 + "px";
+  menu.style.top = more.bottom - p1.top + 6 + "px";
+  const chat = $("miChat").getBoundingClientRect();
+  const sub = $("sub");
+  sub.style.left = chat.left - p1.left - 5 - 150 - 4 + "px";
+  sub.style.top = chat.top - p1.top - 5 + "px";
+  P.more = center($("more1"));
+  P.chat = center($("miChat"));
+  P.canvas = center($("miCanvas"), -12, 0);
+  P.start = { x: 1180, y: 640 };
+  $("urlHost").textContent = "canvas.openai.fit"; $("urlHash").textContent = HASH;
+  P.hash = center($("urlHash"));
+  $("urlHost").textContent = "openai.fit/keys"; $("urlHash").textContent = "";
+  P.status = center($("status"), 20, 0);
+  // edges between nodes (page-local coords)
+  const p2 = $("p2").getBoundingClientRect();
+  const port = (id, side) => { const r = $(id).querySelector(".bd").getBoundingClientRect();
+    return { x: (side === "r" ? r.right : r.left) - p2.left, y: r.top + r.height / 2 - p2.top }; };
+  const curve = (a, b) => `M${a.x} ${a.y} C${a.x + 40} ${a.y}, ${b.x - 40} ${b.y}, ${b.x} ${b.y}`;
+  $("e1").setAttribute("d", curve(port("nText", "r"), port("nImg", "l")));
+  $("e2").setAttribute("d", curve(port("nImg", "r"), port("nVid", "l")));
+  for (const id of ["e1", "e2"]) { const L = $(id).getTotalLength(); $(id).style.strokeDasharray = L; $(id).dataset.len = L; }
+  document.title = "READY";
+}
+
+function cursorAt(t) {
+  const keys = [
+    [0.0, P.start], [0.7, P.start], [1.7, P.more], [2.05, P.more], [2.75, P.chat], [2.95, P.chat], [3.55, P.canvas], [4.2, P.canvas],
+  ];
+  for (let i = 0; i < keys.length - 1; i++) {
+    const [ta, a] = keys[i], [tb, b] = keys[i + 1];
+    if (t <= tb) { const p = inOut(seg(t, ta, tb)); return { x: lerp(a.x, b.x, p), y: lerp(a.y, b.y, p) }; }
+  }
+  return keys[keys.length - 1][1];
+}
+
+function setStep(id, a, b, t) {
+  const el = $(id), on = t >= a && t < b;
+  el.querySelector(".tt").style.color = on ? "#fafafa" : t >= b ? "#a3a3a3" : "#525252";
+  el.querySelector(".ds").style.color = on ? "#a3a3a3" : "#525252";
+  el.querySelector(".bar i").style.height = 84 * (t >= b ? 1 : seg(t, a, b)) + "px";
+  el.querySelector(".bar i").style.background = on ? "#fafafa" : "#525252";
+}
+
+function render(t) {
+  // global fades (loop-friendly: starts and ends on black)
+  $("black").style.opacity = String(1 - seg(t, 0, 0.5) + seg(t, T - 0.5, T));
+  setStep("s1", 0.3, 4.3, t); setStep("s2", 4.3, 6.6, t); setStep("s3", 6.6, 12.2, t);
+  const rise = outC(seg(t, 0.1, 0.9));
+  $("win").style.transform = `translateY(${(1 - rise) * 24}px)`;
+
+  // cursor + clicks
+  const c = cursorAt(t);
+  const cur = $("cursor");
+  cur.style.opacity = String(seg(t, 0.5, 0.8) * (1 - seg(t, 3.9, 4.2)));
+  cur.style.transform = `translate(${c.x - 4}px, ${c.y - 3}px)`;
+  const clicks = [1.8, 3.62];
+  let ringO = 0, ringS = 1, ringP = c;
+  for (const tc of clicks) { const p = seg(t, tc, tc + 0.35); if (p > 0 && p < 1) { ringO = 1 - p; ringS = 0.4 + p; } }
+  const ring = $("ring");
+  ring.style.opacity = String(ringO);
+  ring.style.transform = `translate(${ringP.x}px, ${ringP.y}px) scale(${ringS})`;
+
+  // page 1 menu + submenu
+  const mOpen = outC(seg(t, 1.85, 2.05)) * (1 - seg(t, 3.75, 3.9));
+  $("menu").style.opacity = String(mOpen);
+  $("menu").style.transform = `scale(${0.96 + 0.04 * mOpen})`;
+  $("more1").style.background = t > 1.6 && t < 3.9 ? "#f0f0f0" : "transparent";
+  $("miChat").style.background = t > 2.6 && t < 3.9 ? "#f4f4f4" : "transparent";
+  const sOpen = outC(seg(t, 2.85, 3.05)) * (1 - seg(t, 3.75, 3.9));
+  $("sub").style.opacity = String(sOpen);
+  $("sub").style.transformOrigin = "top right";
+  $("sub").style.transform = `scale(${0.96 + 0.04 * sOpen})`;
+  $("miCanvas").style.background = t > 3.4 && t < 3.9 ? "#ececec" : "transparent";
+
+  // navigation: url swap, cross-fade pages
+  const nav = seg(t, 3.75, 4.3);
+  $("p1").style.opacity = String(1 - nav);
+  $("p2").style.opacity = String(nav);
+  if (t < 3.9) { $("urlHost").textContent = "openai.fit/keys"; $("urlHash").textContent = ""; }
+  else {
+    $("urlHost").textContent = "canvas.openai.fit";
+    const wipe = seg(t, 5.55, 5.85); // replaceState removes the hash
+    const n = Math.round(HASH.length * (1 - wipe));
+    $("urlHash").textContent = n > 1 ? HASH.slice(0, n) : n === 1 ? "/" : "";
+  }
+
+  // key chip flies from the url hash to the header status
+  const fly = inOut(seg(t, 4.75, 5.5));
+  const chip = $("chip");
+  chip.style.opacity = String(seg(t, 4.55, 4.75) * (1 - seg(t, 5.45, 5.6)));
+  const cw = chip.offsetWidth, ch = chip.offsetHeight;
+  const cx = lerp(P.hash.x, P.status.x, fly), cy = lerp(P.hash.y, P.status.y, fly) - Math.sin(fly * Math.PI) * 40;
+  chip.style.transform = `translate(${cx - cw / 2}px, ${cy - ch / 2}px) scale(${1 - 0.15 * fly})`;
+  const ok = seg(t, 5.5, 5.7);
+  $("stNo").style.opacity = String(1 - ok);
+  $("stOk").style.opacity = String(ok);
+  const toast = outC(seg(t, 5.65, 6.0)) * (1 - seg(t, 8.6, 8.9));
+  $("toast").style.opacity = String(toast);
+  $("toast").style.transform = `translate(-50%, ${(1 - toast) * -12}px)`;
+
+  // canvas work: text -> image -> video
+  const showNode = (id, a) => { const p = outC(seg(t, a, a + 0.4)); $(id).style.opacity = String(p); $(id).style.transform = `translateY(${(1 - p) * 10}px)`; };
+  showNode("nText", 6.7); showNode("nImg", 8.25); showNode("nVid", 9.85);
+  const typed = Math.round(PROMPT.length * seg(t, 7.0, 8.2));
+  $("prompt").textContent = PROMPT.slice(0, typed);
+  const typing = t >= 7.0 && t <= 8.2, blink = t > 6.9 && t < 8.8 && Math.floor(t * 3) % 2 === 0;
+  $("caret").style.opacity = typing || blink ? "1" : "0";
+  const edge = (id, a, b) => { const L = +$(id).dataset.len; $(id).style.strokeDashoffset = String(L * (1 - inOut(seg(t, a, b)))); };
+  edge("e1", 8.0, 8.5); edge("e2", 9.6, 10.1);
+  const shimmer = (id, a) => { $(id).querySelector("i").style.left = (-60 + ((t - a) % 1.1) / 1.1 * 160) + "%"; };
+  shimmer("shimImg", 8.25); shimmer("shimVid", 9.85);
+  $("artImg").style.opacity = String(seg(t, 9.35, 9.75));
+  const vp = seg(t, 9.95, 11.25);
+  $("progVid").querySelector("i").style.width = vp * 100 + "%";
+  $("progVid").style.opacity = String(1 - seg(t, 11.25, 11.45));
+  $("artVid").style.opacity = String(seg(t, 11.25, 11.6));
+  $("play").style.opacity = String(seg(t, 11.5, 11.8));
+  const z = 1 + 0.08 * seg(t, 11.25, 12.4);
+  $("vidZoom").setAttribute("transform", `translate(114 64) scale(${z}) translate(-114 -64)`);
+
+  // end card
+  $("endcard").style.opacity = String(seg(t, 12.2, 12.6));
+}
+
+document.fonts.ready.then(() => { init(); render(0); });
+</script>
+</body>
+</html>

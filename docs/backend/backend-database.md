@@ -58,6 +58,7 @@ description: 当前后端主要数据表与字段说明
 | `inviter_id` | string | 邀请人用户 ID |
 | `github_id` | string | GitHub 用户 ID |
 | `linux_do_id` | string | Linux.do 用户 ID |
+| `fit_user_id` | number，可空 | 「用 openai.fit 登录」关联的 openai.fit 用户 ID，唯一索引；没关联的账号为 NULL。按它自动建的账号密码为空，只能经 openai.fit 登录；后台编辑用户时保留这个关联 |
 | `wechat_id` | string | 微信用户 ID |
 | `status` | string | 用户状态：`active`、`ban` |
 | `last_login_at` | string | 最近登录时间 |
