@@ -11,7 +11,7 @@
 ## 基本信息
 
 - 上游项目：[tigerowo/infinite-canvas](https://github.com/tigerowo/infinite-canvas)，前作 [basketikun/infinite-canvas](https://github.com/basketikun/infinite-canvas)、[HuFakai/infinite-canvas](https://github.com/HuFakai/infinite-canvas)。
-- 上游基线：tigerowo/infinite-canvas 的提交 `f5d5a86`（v0.8.3，feat(audio): support MiniMax TTS）。
+- 上游基线：tigerowo/infinite-canvas 的提交 `f5d5a86`（v0.8.3，feat(audio): support MiniMax TTS）。2026-11-17 合并上游 v0.8.4（提交 `786b3b2`），未带入其中的「匿名公网上传」。
 - 修改方：openai.fit。
 - 修改日期：2026-11-01 起；本站版本号带 `-fit` 后缀，首个版本为 `v0.8.3-fit.1`。
 - 许可证：沿用 AGPL-3.0，见 [LICENSE](LICENSE)，未做任何改动。上游和前作的版权声明、作者署名全部保留；页面上保留「无限画布」名称和上游署名。
