@@ -11,6 +11,7 @@ import { getAutoDLCapabilities, isAutoDLConfig } from "@/lib/autodl";
 import { isFitConfig } from "@/lib/fit-config";
 import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { IMAGE_MASK_EDIT_PROMPT_PREFIX, isMaskEditPrompt, stripMaskEditPrefix } from "@/lib/image-reference-prompt";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasCameraControl } from "./canvas-camera-control";
@@ -68,9 +69,13 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const showStop = canStop || isStopping;
     const hasTextContent = node.type === CanvasNodeType.Text && Boolean(node.metadata?.content?.trim());
     const hasImageContent = isCanvasImageNodeType(node.type) && Boolean(node.metadata?.content);
-    const sourcePrompt = isPanorama ? node.metadata?.panoramaSourcePrompt || "" : node.metadata?.prompt || "";
+    // 局部编辑出来的节点：参考栏显示实际发给模型的遮罩图，提示词只显示用户写的修改要求，固定前缀折叠成标签
+    const isMaskEdit = isCanvasImageNodeType(node.type) && (Boolean(node.metadata?.maskEdit) || isMaskEditPrompt(node.metadata?.prompt));
+    const maskReference = node.metadata?.maskEdit ? node.metadata.references?.[0] : undefined;
+    const sourcePrompt = isPanorama ? node.metadata?.panoramaSourcePrompt || "" : stripMaskEditPrefix(node.metadata?.prompt || "");
     const [prompt, setPrompt] = useState(sourcePrompt);
     const [expanded, setExpanded] = useState(false);
+    const [maskNoteOpen, setMaskNoteOpen] = useState(false);
 
     useEffect(() => {
         setPrompt(sourcePrompt);
@@ -100,7 +105,16 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             onPointerDown={(event) => event.stopPropagation()}
             onWheel={(event) => event.stopPropagation()}
         >
-            <CanvasNodeReferenceBar nodeId={node.id} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={onStartReferenceSelection} />
+            <CanvasNodeReferenceBar nodeId={node.id} connectedNodes={connectedNodes} maskReference={maskReference} onDisconnect={onDisconnectReference} onStartSelection={onStartReferenceSelection} />
+            {isMaskEdit ? (
+                <div className="mb-1 px-1 text-[11px]">
+                    <div className="flex items-center gap-2">
+                        <span className="rounded-full px-2 py-0.5" style={{ background: "rgba(37, 99, 235, .14)", color: "#2563eb" }}>局部编辑 · 仅改蓝色区域</span>
+                        <button type="button" className="bg-transparent transition hover:opacity-70" style={{ color: theme.node.muted }} onClick={() => setMaskNoteOpen((open) => !open)}>{maskNoteOpen ? "收起说明" : "展开说明"}</button>
+                    </div>
+                    {maskNoteOpen ? <div className="mt-1 leading-4" style={{ color: theme.node.muted }}>生成时附加给模型的说明：{IMAGE_MASK_EDIT_PROMPT_PREFIX}</div> : null}
+                </div>
+            ) : null}
             <CanvasPromptChipInput
                 value={prompt}
                 references={mentionReferences}
@@ -169,7 +183,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             </div>
             <Modal title="编辑提示词" open={expanded} centered width={760} footer={null} onCancel={() => setExpanded(false)} destroyOnHidden>
                 <div data-canvas-no-zoom className="pt-2" onWheelCapture={(event) => event.stopPropagation()}>
-                    <CanvasNodeReferenceBar nodeId={node.id} connectedNodes={connectedNodes} onDisconnect={onDisconnectReference} onStartSelection={(nodeId) => { setExpanded(false); onStartReferenceSelection?.(nodeId); }} />
+                    <CanvasNodeReferenceBar nodeId={node.id} connectedNodes={connectedNodes} maskReference={maskReference} onDisconnect={onDisconnectReference} onStartSelection={(nodeId) => { setExpanded(false); onStartReferenceSelection?.(nodeId); }} />
                     <CanvasPromptChipInput
                         value={prompt}
                         references={mentionReferences}

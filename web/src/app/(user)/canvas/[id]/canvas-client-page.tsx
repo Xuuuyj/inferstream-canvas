@@ -57,7 +57,7 @@ import { isGrok2APITtsConfig } from "@/lib/grok-tts";
 import { isGeminiConfig, isGeminiTtsModel } from "@/lib/gemini";
 import { isMiniMaxTtsConfig } from "@/lib/minimax-tts";
 import { isKIESeedreamLayerDecompositionModel } from "@/lib/kie-models";
-import { IMAGE_MASK_EDIT_PROMPT_PREFIX } from "@/lib/image-reference-prompt";
+import { IMAGE_MASK_EDIT_PROMPT_PREFIX, withMaskEditPrefix } from "@/lib/image-reference-prompt";
 import { NODE_DEFAULT_SIZE, getNodeSpec } from "../constants";
 import { ActiveConnectionPath, ConnectionPath } from "../components/canvas-connections";
 import { CanvasConfigComposer } from "../components/canvas-config-composer";
@@ -2895,8 +2895,13 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
             const prompt = `${IMAGE_MASK_EDIT_PROMPT_PREFIX}${userPrompt}`;
             const childId = nanoid();
             const clientTaskId = `client_image_task_${nanoid()}`;
-            const markedReference = { id: `${node.id}-marked`, name: `image-${node.id}-marked.png`, type: "image/png", dataUrl: payload.markedDataUrl };
-            const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 1, [markedReference]);
+            // 带遮罩的图要存下来：data: 地址不会写进 metadata.references，不存的话面板看不到它，重试也会报「参考图片已丢失」
+            const markedUpload = await fetch(payload.markedDataUrl)
+                .then((response) => response.blob())
+                .then((blob) => uploadImage(blob))
+                .catch(() => null);
+            const markedReference: ReferenceImage = { id: `${node.id}-marked`, name: `image-${node.id}-marked.png`, type: "image/png", dataUrl: payload.markedDataUrl, storageKey: markedUpload?.storageKey };
+            const generationMetadata = { ...buildImageGenerationMetadata("edit", generationConfig, 1, [markedReference]), maskEdit: true };
             const childNode: CanvasNodeData = {
                 id: childId,
                 type: CanvasNodeType.Image,
@@ -4304,7 +4309,9 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
 
             const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, sourceNode.metadata?.prompt || node.metadata?.prompt || "", composerMentionsFor(generationConfig, retryMode, retryWorkflowRef)));
             const prompt = (isPanorama ? savedImageMetadata?.panoramaFinalPrompt || "" : savedImageMetadata?.prompt || context?.prompt || "").trim();
-            const requestPrompt = isPanorama ? prompt : applyCameraPrompt(prompt, savedImageMetadata?.cameraControl || node.metadata?.cameraControl);
+            // 局部编辑节点的面板只显示用户写的那半句，改过之后存下的提示词可能没有前缀；重试仍是带遮罩的图，前缀要补回来
+            const retryPrompt = savedImageMetadata?.maskEdit ? withMaskEditPrefix(prompt) : prompt;
+            const requestPrompt = isPanorama ? prompt : applyCameraPrompt(retryPrompt, savedImageMetadata?.cameraControl || node.metadata?.cameraControl);
             if (!prompt && !retryWorkflowRef && !(node.type === CanvasNodeType.Video && isAutoDLConfig(generationConfig)) && !(await fitRetryAllowsEmptyPrompt(generationConfig, retryMode, context))) {
                 message.warning("找不到提示词，无法重试");
                 return;
