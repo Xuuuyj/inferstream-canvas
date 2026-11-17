@@ -1,1 +1,15 @@
 *.sh text eol=lf
+COMMIT export-subst -text
+# 内部的计划、验收和进度文档不进 git archive 源码包（/source/ 公开的是程序源码，不含这些内部记录）。
+docs/fit/PLAN.md export-ignore
+docs/fit/P2-ACCEPTANCE.md export-ignore
+docs/fit/P2-ACCEPTANCE-requests.md export-ignore
+docs/fit/P2-ACCEPTANCE-results.md export-ignore
+docs/fit/HANDOFF.md export-ignore
+docs/progress/todo.md export-ignore
+docs/progress/pending-test.md export-ignore
+# 源码包敏感词表只在内部仓库里，进了源码包就等于把词表本身公开了；deploy/source_gate.py 发版前会再查一遍。
+deploy/private export-ignore
+deploy/private/** export-ignore
+# 加密凭据包按二进制处理，换行转换不能改动它
+deploy/private/*.fit-secrets binary
