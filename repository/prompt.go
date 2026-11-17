@@ -90,6 +90,19 @@ func SavePrompt(item model.Prompt) (model.Prompt, error) {
 	return item, db.Save(&item).Error
 }
 
+// GetPrompt 根据 ID 查询提示词；查不到不算错误，也不写「record not found」日志（封面接口对外，随便拼的 ID 会很多）。
+func GetPrompt(id string) (model.Prompt, bool, error) {
+	db, err := DB()
+	if err != nil {
+		return model.Prompt{}, false, err
+	}
+	var items []model.Prompt
+	if err := db.Where("id = ?", id).Limit(1).Find(&items).Error; err != nil || len(items) == 0 {
+		return model.Prompt{}, false, err
+	}
+	return items[0], true, nil
+}
+
 // DeletePrompt 删除指定提示词。
 func DeletePrompt(id string) error {
 	db, err := DB()

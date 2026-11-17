@@ -66,8 +66,9 @@ func normalizePromptSyncSetting(setting model.PromptSyncSetting) model.PromptSyn
 	if setting.Cron == "" {
 		setting.Cron = defaultPromptSyncCron
 	}
+	// 默认不定时拉取远程提示词，remote 分类由管理员在后台手动同步。
 	if setting.Enabled == nil {
-		enabled := true
+		enabled := false
 		setting.Enabled = &enabled
 	}
 	return setting
