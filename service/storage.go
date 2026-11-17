@@ -103,7 +103,7 @@ func HasActiveCloudStorage(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	settings = normalizeSettings(settings)
-	storage := normalizePrivateStorageSetting(settings.Private.Storage)
+	storage := storageSetting(settings.Private.Storage)
 	if canUseGlobalStorage(ctx, storage) && HasAdminStorageProvider(storage) {
 		return true, nil
 	}
@@ -130,7 +130,7 @@ func PublicStorageConfig() (model.PublicStorageConfig, error) {
 		return model.PublicStorageConfig{}, err
 	}
 	settings = normalizeSettings(settings)
-	storage := normalizePrivateStorageSetting(settings.Private.Storage)
+	storage := storageSetting(settings.Private.Storage)
 
 	mode := "local_indexeddb"
 	if HasAdminStorageProvider(storage) {
@@ -142,9 +142,28 @@ func PublicStorageConfig() (model.PublicStorageConfig, error) {
 	return model.PublicStorageConfig{PublicStorageSetting: model.PublicStorageSetting{Mode: mode, AllowUserProvider: storage.AllowUserProvider, AllowUserGlobalProvider: storage.AllowUserGlobalProvider}, AutoSyncAllAssets: storage.AutoSyncAllAssets}, nil
 }
 
+// StorageObjectMeta 是公开接口返回的文件元数据，不含上传者、桶名和对象路径。
+type StorageObjectMeta struct {
+	ID        string `json:"id"`
+	PublicURL string `json:"publicUrl"`
+	MimeType  string `json:"mimeType"`
+	Bytes     int64  `json:"bytes"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+	Direct    bool   `json:"direct"`
+	CreatedAt string `json:"createdAt"`
+}
+
 // StorageObjectInfo 获取存储对象元数据。
-func StorageObjectInfo(id string) (model.StorageObject, error) {
-	return repository.GetStorageObject(id)
+func StorageObjectInfo(id string) (StorageObjectMeta, error) {
+	object, err := repository.GetStorageObject(id)
+	if err != nil {
+		return StorageObjectMeta{}, err
+	}
+	return StorageObjectMeta{
+		ID: object.ID, PublicURL: object.PublicURL, MimeType: object.MimeType, Bytes: object.Bytes,
+		Width: object.Width, Height: object.Height, Direct: object.Direct, CreatedAt: object.CreatedAt,
+	}, nil
 }
 
 // SaveCurrentUserStorageProvider 保存用户配置的存储提供商。
@@ -199,7 +218,7 @@ func UploadStorageObjectWithProvider(ctx context.Context, filename string, conte
 	if err != nil {
 		return UploadedStorageObject{}, err
 	}
-	storage := normalizePrivateStorageSetting(settings.Private.Storage)
+	storage := storageSetting(settings.Private.Storage)
 	usingUserProvider := providerInput != nil && storage.AllowUserProvider
 	var provider model.StorageProvider
 	if usingUserProvider {
@@ -217,13 +236,7 @@ func UploadStorageObjectWithProvider(ctx context.Context, filename string, conte
 		}
 	}
 	objectID := uuid.NewString()
-	ext := path.Ext(filename)
-	if ext == "" {
-		ext = extensionForContentType(contentType)
-	}
-	if provider.Type == model.StorageProviderTypeWebDAV && ext == ".bin" && strings.HasPrefix(strings.ToLower(contentType), "video/mp4") {
-		ext = ".mp4"
-	}
+	ext := extensionForContentType(SniffContentType(data))
 	userID := "anonymous"
 	if user, ok := UserFromContext(ctx); ok && user.ID != "" {
 		userID = user.ID
@@ -259,7 +272,7 @@ func RegisterDirectStorageObject(ctx context.Context, input DirectStorageObjectI
 	if err != nil {
 		return UploadedStorageObject{}, err
 	}
-	storage := normalizePrivateStorageSetting(settings.Private.Storage)
+	storage := storageSetting(settings.Private.Storage)
 	if !storage.AllowUserProvider || input.Provider.Type != model.StorageProviderTypeWebDAV {
 		return UploadedStorageObject{}, errors.New("用户 WebDAV 未启用")
 	}
@@ -312,7 +325,7 @@ func DeleteStorageObject(ctx context.Context, id string, providerInput *StorageO
 	if err != nil {
 		return err
 	}
-	storage := normalizePrivateStorageSetting(settings.Private.Storage)
+	storage := storageSetting(settings.Private.Storage)
 	providers := storage.Providers
 	if object.CreatedBy != "" && object.CreatedBy != "anonymous" {
 		if config, found, loadErr := repository.GetUserConfig(object.CreatedBy); loadErr == nil && found {
@@ -904,15 +917,30 @@ type listBucketResult struct {
 	} `xml:"Contents"`
 }
 
+// storageSetting 读取存储设置。画布站不允许用户自带对象存储，AllowUserProvider 一律当作关闭。
+func storageSetting(setting model.PrivateStorageSetting) model.PrivateStorageSetting {
+	setting = normalizePrivateStorageSetting(setting)
+	setting.AllowUserProvider = false
+	return setting
+}
+
+// mediaExtensions 是上传文件可用的扩展名白名单，键是内容嗅探出的类型。
+var mediaExtensions = map[string]string{
+	"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif", "image/avif": ".avif",
+	"video/mp4": ".mp4", "video/webm": ".webm", "audio/mpeg": ".mp3", "audio/wave": ".wav",
+}
+
 func extensionForContentType(contentType string) string {
-	switch strings.ToLower(strings.Split(contentType, ";")[0]) {
-	case "image/jpeg":
-		return ".jpg"
-	case "image/webp":
-		return ".webp"
-	case "image/png":
-		return ".png"
-	default:
-		return ".bin"
+	if ext, ok := mediaExtensions[strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))]; ok {
+		return ext
 	}
+	return ".bin"
+}
+
+// SniffContentType 按文件内容判断类型，补上标准库认不出的 AVIF。
+func SniffContentType(data []byte) string {
+	if len(data) >= 12 && string(data[4:8]) == "ftyp" && (string(data[8:12]) == "avif" || string(data[8:12]) == "avis") {
+		return "image/avif"
+	}
+	return http.DetectContentType(data)
 }

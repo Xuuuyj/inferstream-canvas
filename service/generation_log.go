@@ -35,11 +35,19 @@ func SaveCurrentUserVideoGenerationLogs(ctx context.Context, raws []json.RawMess
 	}
 	cleanupGenerationLogs()
 	logs := make([]model.VideoGenerationLog, 0, len(raws))
+	ids := make([]string, 0, len(raws))
+	var size int64
 	for _, raw := range raws {
 		log := videoGenerationLogFromPayload(raw)
 		if log.ID != "" {
 			logs = append(logs, log)
+			ids = append(ids, log.ID)
+			size += int64(len(log.PayloadJSON))
 		}
+	}
+	defer lockUserQuota(user.ID)()
+	if err := checkUserDataQuota(user.ID, nil, size, userDataExcept{videoLogIDs: ids}); err != nil {
+		return nil, err
 	}
 	if err := repository.UpsertVideoGenerationLogs(user.ID, logs); err != nil {
 		return nil, err
@@ -88,11 +96,19 @@ func SaveCurrentUserImageGenerationLogs(ctx context.Context, raws []json.RawMess
 	}
 	cleanupGenerationLogs()
 	logs := make([]model.ImageGenerationLog, 0, len(raws))
+	ids := make([]string, 0, len(raws))
+	var size int64
 	for _, raw := range raws {
 		log := imageGenerationLogFromPayload(raw)
 		if log.ID != "" {
 			logs = append(logs, log)
+			ids = append(ids, log.ID)
+			size += int64(len(log.PayloadJSON))
 		}
+	}
+	defer lockUserQuota(user.ID)()
+	if err := checkUserDataQuota(user.ID, nil, size, userDataExcept{imageLogIDs: ids}); err != nil {
+		return nil, err
 	}
 	if err := repository.UpsertImageGenerationLogs(user.ID, logs); err != nil {
 		return nil, err
@@ -247,6 +263,8 @@ func cleanupGenerationLogs() {
 }
 
 func migrateUserImageGenerationLogs(userID string) error {
+	// Rewrites the whole user_config row, like the asset and model-config saves: same lock, so neither is written back stale.
+	defer lockUserQuota(userID)()
 	config, found, err := repository.GetUserConfig(userID)
 	if err != nil || !found || strings.TrimSpace(config.ImageHistory) == "" {
 		return err

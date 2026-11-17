@@ -86,6 +86,10 @@ func SaveCurrentUserCanvasProject(
 	if err != nil {
 		return nil, err
 	}
+	defer lockUserQuota(user.ID)()
+	if err := checkCanvasProjectQuota(project); err != nil {
+		return nil, err
+	}
 	saved, err := repository.SaveUserCanvasProject(project)
 	if err != nil {
 		return nil, err
@@ -114,7 +118,17 @@ func SyncCurrentUserCanvasProjects(
 		projects = append(projects, project)
 	}
 
-	saved, err := repository.SaveUserCanvasProjects(user.ID, projects)
+	// 逐个检查配额再保存，前面已经存下的项目不回滚。
+	defer lockUserQuota(user.ID)()
+	for _, project := range projects {
+		if err := checkCanvasProjectQuota(project); err != nil {
+			return nil, err
+		}
+		if _, err := repository.SaveUserCanvasProject(project); err != nil {
+			return nil, err
+		}
+	}
+	saved, err := repository.ListUserCanvasProjects(user.ID)
 	if err != nil {
 		return nil, err
 	}

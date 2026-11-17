@@ -11,11 +11,12 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
-	"sort"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/tigerowo/infinite-canvas/config"
 	"github.com/tigerowo/infinite-canvas/model"
 	"github.com/tigerowo/infinite-canvas/repository"
 )
@@ -29,6 +30,8 @@ func PublicSettings() (model.PublicSetting, error) {
 	if len(settings.Public.ModelChannel.AvailableModels) == 0 {
 		settings.Public.ModelChannel.AvailableModels = enabledChannelModels(settings.Private.Channels)
 	}
+	settings.Public.Auth.InferStreamLogin = len(config.Cfg.InferStreamSSOSecret) >= 32
+	settings.Public.Auth.FitLogin = config.Cfg.FitConnectSecret != ""
 	return settings.Public, err
 }
 

@@ -21,6 +21,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// promptCategories 是内置提示词分类。Remote 分类的内容来自 GitHub，默认不定时同步，只由管理员在后台手动同步。
 var promptCategories = []model.PromptCategory{
 	{Category: "system", Name: "系统", Description: "系统提示词分类"},
 	{Category: "gpt-image-2-prompts", Name: "GPT Image 2 Prompts", Description: "TigerOWO 的 GPT Image 2 案例提示词分类", GithubURL: "https://github.com/tigerowo/awesome-gpt-image-2-prompts", Remote: true},

@@ -12,8 +12,11 @@ import (
 )
 
 const (
-	maxAgentSkillContentLength = 20000
-	maxAgentSkillPathLength    = 191
+	maxAgentSkillContentLength     = 20000
+	maxAgentSkillPathLength        = 191
+	maxAgentSkillDescriptionLength = 2000
+	maxAgentSkillCoverURLLength    = 2048
+	maxAgentSkillNameLength        = 100
 )
 
 func ListEnabledSystemAgentSkills() ([]model.AgentSkill, error) {
@@ -98,11 +101,28 @@ func saveAgentSkill(input model.AgentSkill, source string, ownerUserID string) (
 	if name == "" {
 		return model.AgentSkill{}, errors.New("请输入 Skill 名称")
 	}
+	if utf8.RuneCountInString(name) > maxAgentSkillNameLength {
+		return model.AgentSkill{}, safeMessageError{message: "Skill 名称不能超过 100 字"}
+	}
 	if content == "" {
 		return model.AgentSkill{}, errors.New("请输入 Skill 内容")
 	}
 	if utf8.RuneCountInString(content) > maxAgentSkillContentLength {
 		return model.AgentSkill{}, errors.New("Skill 内容不能超过 20000 字")
+	}
+	description := strings.TrimSpace(input.Description)
+	if utf8.RuneCountInString(description) > maxAgentSkillDescriptionLength {
+		return model.AgentSkill{}, safeMessageError{message: "Skill 简介不能超过 2000 字"}
+	}
+	coverURL := strings.TrimSpace(input.CoverURL)
+	if utf8.RuneCountInString(coverURL) > maxAgentSkillCoverURLLength {
+		return model.AgentSkill{}, safeMessageError{message: "Skill 封面链接不能超过 2048 个字符"}
+	}
+	if utf8.RuneCountInString(strings.TrimSpace(input.CoverStorageKey)) > maxAgentSkillCoverURLLength {
+		return model.AgentSkill{}, safeMessageError{message: "Skill 封面存储路径不能超过 2048 个字符"}
+	}
+	if source == model.AgentSkillSourceUser {
+		defer lockUserQuota(ownerUserID)()
 	}
 
 	current := now()
@@ -118,6 +138,11 @@ func saveAgentSkill(input model.AgentSkill, source string, ownerUserID string) (
 		}
 		createdAt = existing.CreatedAt
 	} else {
+		if source == model.AgentSkillSourceUser {
+			if err := checkUserAgentSkillQuota(ownerUserID); err != nil {
+				return model.AgentSkill{}, err
+			}
+		}
 		id = newID("agent-skill")
 		createdAt = current
 	}
@@ -127,8 +152,8 @@ func saveAgentSkill(input model.AgentSkill, source string, ownerUserID string) (
 		OwnerUserID:     ownerUserID,
 		Source:          source,
 		Name:            name,
-		Description:     strings.TrimSpace(input.Description),
-		CoverURL:        strings.TrimSpace(input.CoverURL),
+		Description:     description,
+		CoverURL:        coverURL,
 		CoverStorageKey: strings.TrimSpace(input.CoverStorageKey),
 		Content:         content,
 		Enabled:         source == model.AgentSkillSourceUser || input.Enabled,

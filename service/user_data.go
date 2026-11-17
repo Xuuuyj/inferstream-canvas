@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -162,7 +163,9 @@ func CurrentUserConfig(ctx context.Context) (UserConfigPayload, error) {
 		return result, nil
 	}
 	if strings.TrimSpace(config.ModelConfig) != "" {
-		result.ModelConfig = json.RawMessage(config.ModelConfig)
+		if cleaned, err := stripModelConfigSecrets(json.RawMessage(config.ModelConfig)); err == nil {
+			result.ModelConfig = cleaned
+		}
 	}
 	if strings.TrimSpace(config.StorageProvider) != "" {
 		providers := readUserStorageProviders(config.StorageProvider)
@@ -203,6 +206,12 @@ func SaveCurrentUserModelConfig(ctx context.Context, raw json.RawMessage) (UserC
 	if !ok || user.ID == "" {
 		return UserConfigPayload{}, errors.New("请先登录")
 	}
+	cleaned, err := stripModelConfigSecrets(raw)
+	if err != nil {
+		return UserConfigPayload{}, errors.New("模型配置格式错误")
+	}
+	// 和素材数据存在同一行，整行覆盖写；不加锁的话可能把刚缩小的素材数据写回旧值，绕过配额。
+	defer lockUserQuota(user.ID)()
 	config, _, err := repository.GetUserConfig(user.ID)
 	if err != nil {
 		return UserConfigPayload{}, err
@@ -212,28 +221,54 @@ func SaveCurrentUserModelConfig(ctx context.Context, raw json.RawMessage) (UserC
 		config.UserID = user.ID
 		config.CreatedAt = current
 	}
-	var incoming, saved map[string]json.RawMessage
-	if json.Unmarshal(raw, &incoming) == nil && incoming != nil {
-		var input userModelConfigInput
-		if json.Unmarshal(raw, &input) != nil {
-			return UserConfigPayload{}, errors.New("模型配置格式错误")
-		}
-		for _, translation := range input.ChannelTranslations {
-			if _, err := ParameterTranslationModels(translation.ParameterTranslation); err != nil {
-				return UserConfigPayload{}, err
-			}
-		}
-		if _, supplied := incoming["channelTranslations"]; !supplied && json.Unmarshal([]byte(config.ModelConfig), &saved) == nil && saved["channelTranslations"] != nil {
-			incoming["channelTranslations"] = saved["channelTranslations"]
-			raw, _ = json.Marshal(incoming)
-		}
-	}
-	config.ModelConfig = string(raw)
+	config.ModelConfig = string(cleaned)
 	config.UpdatedAt = current
 	if _, err := repository.SaveUserConfig(config); err != nil {
 		return UserConfigPayload{}, err
 	}
 	return CurrentUserConfig(ctx)
+}
+
+var modelConfigSecretKeys = map[string]bool{
+	"apiKey":              true,
+	"baseUrl":             true,
+	"localChannels":       true,
+	"publicChannels":      true,
+	"channelTranslations": true,
+	"uploadApiKey":        true,
+	// 浏览器里视频、图片、文本三把 openai.fit 令牌（槽位里的密钥字段也叫 apiKey，上面那条本来就会删）、手动令牌和令牌属于哪个 fit 用户。
+	"fitKeys":      true,
+	"fitManualKey": true,
+	"fitAccount":   true,
+}
+
+// stripModelConfigSecrets 删除模型配置里任意层级的密钥、渠道地址和渠道列表，服务端不保存也不回传这些字段。
+func stripModelConfigSecrets(raw json.RawMessage) (json.RawMessage, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	return json.Marshal(stripSecretFields(value))
+}
+
+func stripSecretFields(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, item := range typed {
+			if modelConfigSecretKeys[key] {
+				delete(typed, key)
+				continue
+			}
+			typed[key] = stripSecretFields(item)
+		}
+	case []any:
+		for index, item := range typed {
+			typed[index] = stripSecretFields(item)
+		}
+	}
+	return value
 }
 
 func CurrentUserImageHistory(ctx context.Context) (json.RawMessage, error) {
@@ -298,6 +333,7 @@ func saveCurrentUserConfigField(ctx context.Context, patch func(config *model.Us
 	if !ok || user.ID == "" {
 		return model.UserConfig{}, errors.New("请先登录")
 	}
+	defer lockUserQuota(user.ID)()
 	config, _, err := repository.GetUserConfig(user.ID)
 	if err != nil {
 		return model.UserConfig{}, err
@@ -308,6 +344,9 @@ func saveCurrentUserConfigField(ctx context.Context, patch func(config *model.Us
 		config.CreatedAt = current
 	}
 	patch(&config)
+	if err := checkUserDataQuota(user.ID, &config, 0, userDataExcept{}); err != nil {
+		return model.UserConfig{}, err
+	}
 	config.UpdatedAt = current
 	return repository.SaveUserConfig(config)
 }

@@ -134,40 +134,31 @@ func TestParameterTranslationChannelFlow(t *testing.T) {
 			}
 		})
 	}
+	// 服务端不再保存用户的渠道、密钥和传参翻译（PLAN C20），个人渠道也就不能再走服务端 AI 代理。
 	t.Run("personal-channel", func(t *testing.T) {
 		ctx := service.WithUser(context.Background(), model.PublicUser(user))
 		raw := json.RawMessage(`{"localChannels":[{"id":"personal","protocol":"openai","baseUrl":"https://upstream.invalid/v1","apiKey":"personal-key","models":["personal-model"]}],"channelTranslations":[{"channelId":"personal","parameterTranslation":"{models:{'personal-model':{POST:{url:'/personal',body:{prompt}},result:'url'}}}"}]}`)
-		if _, err := service.SaveCurrentUserModelConfig(ctx, raw); err != nil {
+		saved, err := service.SaveCurrentUserModelConfig(ctx, raw)
+		if err != nil {
 			t.Fatal(err)
+		}
+		if text := string(saved.ModelConfig); strings.Contains(text, "personal-key") || strings.Contains(text, "localChannels") || strings.Contains(text, "channelTranslations") {
+			t.Fatalf("model config kept secrets: %s", text)
 		}
 		calls := 0
 		protocolMockHTTP(t, func(r *http.Request) (*http.Response, error) {
 			calls++
-			if r.URL.Path != "/v1/personal" || r.Header.Get("Authorization") != "Bearer personal-key" {
-				t.Fatalf("personal route/auth: %s %v", r.URL, r.Header)
-			}
 			return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"url":"https://media.invalid/personal.png"}`))}, nil
 		})
 		r := httptest.NewRequest("POST", "/images/generations", strings.NewReader(`{"model":"personal-model","_parameterTranslation":{"kind":"image","variables":{"prompt":"personal prompt"}}}`)).WithContext(ctx)
 		r.Header.Set("X-User-Model-Channel-ID", "personal")
 		w := httptest.NewRecorder()
 		proxyAIRequest(w, r, "/images/generations")
-		if w.Code != 200 || !strings.Contains(w.Body.String(), "https://media.invalid/personal.png") || calls != 1 {
+		if !strings.Contains(w.Body.String(), "本地渠道不存在") || calls != 0 {
 			t.Fatalf("personal response %s calls=%d", w.Body, calls)
 		}
-		if _, err := service.SaveCurrentUserModelConfig(ctx, json.RawMessage(`{"localChannels":[{"id":"personal","protocol":"openai","baseUrl":"https://upstream.invalid/v1","apiKey":"personal-key","models":["personal-model"]}]}`)); err != nil {
-			t.Fatal(err)
-		}
-		preserved, err := service.SelectUserLocalModelChannelForModel(user.ID, "personal-model", "personal")
-		if err != nil || preserved.ParameterTranslation == "" {
-			t.Fatalf("omitted source lost: %v", err)
-		}
-		if _, err := service.SaveCurrentUserModelConfig(ctx, json.RawMessage(`{"localChannels":[{"id":"personal","protocol":"openai","baseUrl":"https://upstream.invalid/v1","apiKey":"personal-key","models":["personal-model"]}],"channelTranslations":[]}`)); err != nil {
-			t.Fatal(err)
-		}
-		channel, err := service.SelectUserLocalModelChannelForModel(user.ID, "personal-model", "personal")
-		if err != nil || channel.ParameterTranslation != "" {
-			t.Fatalf("personal clear failed: %v %s", err, channel.ParameterTranslation)
+		if _, err := service.SelectUserLocalModelChannelForModel(user.ID, "personal-model", "personal"); err == nil {
+			t.Fatal("personal channel should not be stored on the server")
 		}
 	})
 }

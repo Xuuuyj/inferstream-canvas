@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/tigerowo/infinite-canvas/model"
 	"github.com/tigerowo/infinite-canvas/repository"
@@ -65,9 +66,11 @@ func SaveCreativeWorkflow(ctx context.Context, payload CreativeWorkflowPayload) 
 		return CreativeWorkflowPayload{}, errors.New("请先登录")
 	}
 	scope := strings.ToLower(strings.TrimSpace(payload.Scope))
-	if scope != "public" {
+	// 只有管理员能发布公开工作流，普通用户提交的一律存为私有。
+	if scope != "public" || user.Role != model.UserRoleAdmin {
 		scope = "private"
 	}
+	defer lockUserQuota(user.ID)()
 	current := now()
 	id := strings.TrimSpace(payload.ID)
 	var existing model.CreativeWorkflow
@@ -105,8 +108,15 @@ func SaveCreativeWorkflow(ctx context.Context, payload CreativeWorkflowPayload) 
 	if record.Name == "" {
 		return CreativeWorkflowPayload{}, errors.New("请输入工作流名称")
 	}
+	if utf8.RuneCountInString(record.Name) > 100 || utf8.RuneCountInString(record.Category) > 50 ||
+		utf8.RuneCountInString(record.Description) > 2000 || len(record.LastRunAt) > 64 {
+		return CreativeWorkflowPayload{}, safeMessageError{message: "工作流名称不超过 100 字、分类不超过 50 字、说明不超过 2000 字"}
+	}
 	if strings.TrimSpace(record.Data) == "" {
 		record.Data = "{}"
+	}
+	if err := checkCreativeWorkflowQuota(record); err != nil {
+		return CreativeWorkflowPayload{}, err
 	}
 	saved, err := repository.SaveCreativeWorkflow(record)
 	if err != nil {
