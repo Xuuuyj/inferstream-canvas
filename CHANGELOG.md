@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v0.8.4-inferstream.11 - 2026-11-21
+
++ [修复] InferStream 登录确认页的三个选项使用统一宽度。
+
 ## v0.8.4-inferstream.10 - 2026-11-21
 
 + [修复] 主动使用 InferStream 登录时始终显示画布同步选项。

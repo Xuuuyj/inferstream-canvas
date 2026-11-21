@@ -57,9 +57,11 @@ export default function InferStreamCallback() {
                 <>
                     <p>以 InferStream 账号 {consent.session.user.displayName || consent.session.user.username} 登录时，是否同步画布项目？</p>
                     <p className="text-muted-foreground">仅登录时，画布项目保存在当前浏览器。</p>
-                    <Button type="primary" onClick={() => finishLogin(false)}>登录并同步</Button>
-                    <Button onClick={() => finishLogin(true)}>仅登录，不同步画布</Button>
-                    <Button onClick={() => router.replace(consent.redirect)}>取消</Button>
+                    <div className="flex w-full max-w-56 flex-col gap-4">
+                        <Button block type="primary" onClick={() => finishLogin(false)}>登录并同步</Button>
+                        <Button block onClick={() => finishLogin(true)}>仅登录，不同步画布</Button>
+                        <Button block onClick={() => router.replace(consent.redirect)}>取消</Button>
+                    </div>
                 </>
             ) : failure ? (
                 <>
