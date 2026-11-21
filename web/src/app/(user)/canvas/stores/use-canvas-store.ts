@@ -83,11 +83,16 @@ function waitForUserStoreHydration() {
     });
 }
 
+function allowsCanvasSync(token: string) {
+    const session = useUserStore.getState();
+    return !!token && token === session.token && !session.canvasSyncDisabled;
+}
+
 async function flushProjectSave(id: string) {
     if (savingProjects.has(id) || projectSaveTimers.has(id)) return;
     const pending = pendingProjectSaves.get(id);
     if (!pending) return;
-    if (!accountCanvasSyncEnabled || useUserStore.getState().token !== pending.token) {
+    if (!accountCanvasSyncEnabled || !allowsCanvasSync(pending.token)) {
         pendingProjectSaves.delete(id);
         return;
     }
@@ -105,7 +110,7 @@ async function flushProjectSave(id: string) {
         projectSaveBackoffMs = Math.min(PROJECT_SAVE_MAX_BACKOFF_MS, Math.max(5000, projectSaveBackoffMs * 2));
         const delay = saveRetryDelayMs(error, projectSaveBackoffMs);
         const { hydrated, projects } = useCanvasStore.getState();
-        if (useUserStore.getState().token !== pending.token) {
+        if (!allowsCanvasSync(pending.token)) {
             // 保存途中退出或换了账号：这一版不再发。
         } else if (delay === null) {
             console.error("Failed to save canvas project", error);
@@ -137,7 +142,7 @@ function scheduleProjectSave(id: string, delayMs: number) {
 function queueProjectSave(project: CanvasProject) {
     if (isCanvasTabSuperseded()) return;
     const token = useUserStore.getState().token;
-    if (!token || !accountCanvasSyncEnabled) {
+    if (!allowsCanvasSync(token) || !accountCanvasSyncEnabled) {
         cancelProjectSaves([project.id]);
         return;
     }
@@ -182,6 +187,7 @@ async function reconcileCanvasProjects(
             )
         : mergeCanvasProjects(remoteProjects, existingLocalProjects);
 
+    if (!allowsCanvasSync(token)) return localProjects;
     localProjects.forEach((project) => {
         const remote = remoteById.get(project.id);
         if (
@@ -209,12 +215,13 @@ const canvasStorage: PersistStorage<CanvasStore> = {
         const localHasData =
             Array.isArray(localProjects) && localProjects.length > 0;
 
-        if (token) {
+        if (allowsCanvasSync(token)) {
             try {
                 const [userConfig, remoteProjects] = await Promise.all([
                     fetchUserConfig(token),
                     listCanvasProjects(token),
                 ]);
+                if (!allowsCanvasSync(token)) return localParsed;
                 accountCanvasSyncEnabled =
                     userConfig.syncCapabilities?.userData === true;
 
@@ -225,6 +232,7 @@ const canvasStorage: PersistStorage<CanvasStore> = {
                         localProjects,
                     );
 
+                    if (!allowsCanvasSync(token)) return localParsed;
                     const nextState = { projects };
                     const parsed = {
                         state: nextState,
@@ -397,17 +405,18 @@ export const useCanvasStore = create<CanvasStore>()(
             },
             syncWithRemote: async (token, syncEnabled) => {
                 accountCanvasSyncEnabled = syncEnabled;
-                if (!syncEnabled || isCanvasTabSuperseded()) return;
+                if (!syncEnabled || !allowsCanvasSync(token) || isCanvasTabSuperseded()) return;
                 const localProjects = get().projects;
                 const remoteProjects = await listCanvasProjects(token).catch(
                     () => null,
                 );
-                if (!remoteProjects) return;
+                if (!remoteProjects || !allowsCanvasSync(token)) return;
                 const projects = await reconcileCanvasProjects(
                     token,
                     remoteProjects,
                     localProjects,
                 );
+                if (!allowsCanvasSync(token)) return;
                 if (saveTimer) {
                     clearTimeout(saveTimer);
                     saveTimer = null;

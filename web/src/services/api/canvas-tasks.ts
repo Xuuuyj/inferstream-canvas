@@ -35,11 +35,11 @@ export async function stopCanvasTask(kind: "image" | "video" | "audio", id: stri
 }
 
 export async function deleteCanvasProjects(ids: string[]) {
-    const token = useUserStore.getState().token;
+    const { token, canvasSyncDisabled } = useUserStore.getState();
     const projectIds = Array.from(
         new Set(ids.map((id) => id.trim()).filter(Boolean)),
     );
-    if (!token || !projectIds.length) return;
+    if (!token || canvasSyncDisabled || !projectIds.length) return;
     return apiPost<{ deleted: boolean }>(
         "/api/v1/canvas/projects/delete",
         { ids: projectIds },

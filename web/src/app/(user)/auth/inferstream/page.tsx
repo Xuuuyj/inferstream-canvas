@@ -42,15 +42,20 @@ export default function InferStreamCallback() {
         void complete().catch(() => setFailure(true));
     }, [router]);
 
+    function finishLogin(canvasSyncDisabled: boolean) {
+        if (!consent) return;
+        useUserStore.getState().setSession(consent.session.token, consent.session.user, canvasSyncDisabled);
+        router.replace(consent.redirect);
+    }
+
     return (
         <main className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
             {consent ? (
                 <>
                     <p>此浏览器还有画布项目。是否将它们同步到 InferStream 账号 {consent.session.user.displayName || consent.session.user.username}？</p>
-                    <Button type="primary" onClick={() => {
-                        useUserStore.getState().setSession(consent.session.token, consent.session.user);
-                        router.replace(consent.redirect);
-                    }}>登录并同步</Button>
+                    <p className="text-muted-foreground">仅登录时，画布项目保存在当前浏览器。</p>
+                    <Button type="primary" onClick={() => finishLogin(false)}>登录并同步</Button>
+                    <Button onClick={() => finishLogin(true)}>仅登录，不同步画布</Button>
                     <Button onClick={() => router.replace(consent.redirect)}>取消</Button>
                 </>
             ) : failure ? (
