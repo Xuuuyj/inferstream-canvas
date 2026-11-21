@@ -22,12 +22,9 @@ export default function UserLayout({ children }: { children: ReactNode }) {
     const isProtectedPage = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 
     useEffect(() => {
-        if (!inferStreamLogin || !isReady || user || pathname === "/auth/inferstream" || isProtectedPage) return;
-        const current = window.location;
-        const redirect = pathname === "/login"
-            ? new URLSearchParams(current.search).get("redirect") ?? "/"
-            : current.pathname + current.search + current.hash;
-        void startInferStreamLogin(redirect, true).catch(() => {});
+        if (!inferStreamLogin || !isReady || user || pathname === "/login" || pathname === "/auth/inferstream" || isProtectedPage) return;
+        const { pathname: currentPath, search, hash } = window.location;
+        void startInferStreamLogin(currentPath + search + hash, true).catch(() => {});
     }, [inferStreamLogin, isProtectedPage, isReady, pathname, user]);
 
     useEffect(() => {

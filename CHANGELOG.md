@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v0.8.4-inferstream.10 - 2026-11-21
+
++ [修复] 主动使用 InferStream 登录时始终显示画布同步选项。
+
 ## v0.8.4-inferstream.9 - 2026-11-21
 
 + [新增] InferStream 登录时可仅登录并将画布项目保留在浏览器本地。
