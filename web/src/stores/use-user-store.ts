@@ -10,7 +10,8 @@ type UserStore = {
     user: AuthUser | null;
     isReady: boolean;
     isLoading: boolean;
-    setSession: (token: string, user: AuthUser) => void;
+    canvasSyncDisabled: boolean;
+    setSession: (token: string, user: AuthUser, canvasSyncDisabled?: boolean) => void;
     clearSession: () => void;
     hydrateUser: () => Promise<void>;
     login: (payload: AuthPayload) => Promise<AuthUser>;
@@ -26,8 +27,9 @@ export const useUserStore = create<UserStore>()(
             user: null,
             isReady: false,
             isLoading: false,
-            setSession: (token, user) => set({ token, user, isReady: true }),
-            clearSession: () => set({ token: "", user: null, isReady: true }),
+            canvasSyncDisabled: false,
+            setSession: (token, user, canvasSyncDisabled = false) => set({ token, user, canvasSyncDisabled, isReady: true, isLoading: false }),
+            clearSession: () => set({ token: "", user: null, canvasSyncDisabled: false, isReady: true, isLoading: false }),
             hydrateUser: async () => {
                 const token = get().token;
                 if (!token) {
@@ -37,20 +39,22 @@ export const useUserStore = create<UserStore>()(
                 set({ isLoading: true });
                 try {
                     const user = await fetchCurrentUser(token);
+                    if (get().token !== token) return;
                     if (user.role === "guest") {
-                        set({ token: "", user: null, isReady: true, isLoading: false });
+                        set({ token: "", user: null, canvasSyncDisabled: false, isReady: true, isLoading: false });
                         return;
                     }
                     set({ user, isReady: true, isLoading: false });
                 } catch {
-                    set({ token: "", user: null, isReady: true, isLoading: false });
+                    if (get().token !== token) return;
+                    set({ token: "", user: null, canvasSyncDisabled: false, isReady: true, isLoading: false });
                 }
             },
             login: async (payload) => {
                 set({ isLoading: true });
                 try {
                     const session = await login(payload);
-                    set({ token: session.token, user: session.user, isReady: true, isLoading: false });
+                    set({ token: session.token, user: session.user, canvasSyncDisabled: false, isReady: true, isLoading: false });
                     return session.user;
                 } catch (error) {
                     set({ isLoading: false });
@@ -61,7 +65,7 @@ export const useUserStore = create<UserStore>()(
                 set({ isLoading: true });
                 try {
                     const session = await loginWithFit(payload);
-                    set({ token: session.token, user: session.user, isReady: true, isLoading: false });
+                    set({ token: session.token, user: session.user, canvasSyncDisabled: false, isReady: true, isLoading: false });
                     return session.user;
                 } catch (error) {
                     set({ isLoading: false });
@@ -72,7 +76,7 @@ export const useUserStore = create<UserStore>()(
                 set({ isLoading: true });
                 try {
                     const session = await adminLogin(payload);
-                    set({ token: session.token, user: session.user, isReady: true, isLoading: false });
+                    set({ token: session.token, user: session.user, canvasSyncDisabled: false, isReady: true, isLoading: false });
                     return session.user;
                 } catch (error) {
                     set({ isLoading: false });
@@ -83,7 +87,7 @@ export const useUserStore = create<UserStore>()(
                 set({ isLoading: true });
                 try {
                     const session = await register(payload);
-                    set({ token: session.token, user: session.user, isReady: true, isLoading: false });
+                    set({ token: session.token, user: session.user, canvasSyncDisabled: false, isReady: true, isLoading: false });
                     return session.user;
                 } catch (error) {
                     set({ isLoading: false });
@@ -93,7 +97,7 @@ export const useUserStore = create<UserStore>()(
         }),
         {
             name: AUTH_TOKEN_KEY,
-            partialize: (state) => ({ token: state.token }),
+            partialize: (state) => ({ token: state.token, canvasSyncDisabled: state.canvasSyncDisabled }),
             onRehydrateStorage: () => (state) => {
                 if (state) state.isReady = false;
             },

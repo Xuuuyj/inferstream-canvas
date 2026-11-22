@@ -22,12 +22,9 @@ export default function UserLayout({ children }: { children: ReactNode }) {
     const isProtectedPage = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 
     useEffect(() => {
-        if (!inferStreamLogin || !isReady || user || pathname === "/auth/inferstream" || isProtectedPage) return;
-        const current = window.location;
-        const redirect = pathname === "/login"
-            ? new URLSearchParams(current.search).get("redirect") ?? "/"
-            : current.pathname + current.search + current.hash;
-        void startInferStreamLogin(redirect, true).catch(() => {});
+        if (!inferStreamLogin || !isReady || user || pathname === "/login" || pathname === "/auth/inferstream" || isProtectedPage) return;
+        const { pathname: currentPath, search, hash } = window.location;
+        void startInferStreamLogin(currentPath + search + hash, true).catch(() => {});
     }, [inferStreamLogin, isProtectedPage, isReady, pathname, user]);
 
     useEffect(() => {
@@ -48,11 +45,14 @@ export default function UserLayout({ children }: { children: ReactNode }) {
         fetchUserConfig(token).then(async (config) => {
             const syncEnabled = config.syncCapabilities?.userData === true;
             const { useCanvasStore } = await import("@/app/(user)/canvas/stores/use-canvas-store");
+            const session = useUserStore.getState();
+            if (session.token !== token) return;
             const canvasStore = useCanvasStore.getState();
-            canvasStore.setSyncEnabled(syncEnabled);
+            canvasStore.setSyncEnabled(syncEnabled && !session.canvasSyncDisabled);
             if (
                 syncCanvasAfterLogin &&
                 syncEnabled &&
+                !session.canvasSyncDisabled &&
                 canvasStore.hydrated
             ) {
                 // 记下本机画布项目同步到了哪个账号：之后用别的 openai.fit 账号静默登录前要先问（见 use-fit-bridge-store）
@@ -60,7 +60,7 @@ export default function UserLayout({ children }: { children: ReactNode }) {
                 void canvasStore.syncWithRemote(token, true);
             }
             const { useAssetStore } = await import("@/stores/use-asset-store");
-            void useAssetStore.getState().hydrateAccountAssets(token, syncEnabled);
+            if (useUserStore.getState().token === token) void useAssetStore.getState().hydrateAccountAssets(token, syncEnabled);
         }).catch(() => { });
     }, [isReady, user]);
 

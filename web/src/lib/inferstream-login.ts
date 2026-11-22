@@ -35,7 +35,7 @@ export async function startInferStreamLogin(redirect: string, silent = false) {
     const state = base64url(crypto.getRandomValues(new Uint8Array(32)));
     const verifier = base64url(crypto.getRandomValues(new Uint8Array(32)));
     const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
-    sessionStorage.setItem(pendingKey, JSON.stringify({ state, verifier, redirect: safeCanvasReturn(redirect) }));
+    sessionStorage.setItem(pendingKey, JSON.stringify({ state, verifier, redirect: safeCanvasReturn(redirect), silent }));
     const target = new URL(authorizationURL);
     target.search = new URLSearchParams({
         state,
@@ -49,7 +49,7 @@ export async function startInferStreamLogin(redirect: string, silent = false) {
 export function consumeInferStreamLogin(state: string) {
     const raw = sessionStorage.getItem(pendingKey);
     if (!raw) return null;
-    const request = JSON.parse(raw) as { state: string; verifier: string; redirect: string };
+    const request = JSON.parse(raw) as { state: string; verifier: string; redirect: string; silent?: boolean };
     if (request.state !== state) return null;
     sessionStorage.removeItem(pendingKey);
     return request;

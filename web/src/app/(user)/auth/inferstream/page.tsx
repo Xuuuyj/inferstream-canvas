@@ -32,7 +32,10 @@ export default function InferStreamCallback() {
             const code = query.get("code");
             if (!code) throw new Error("missing authorization");
             const session = await loginWithInferStream({ code, codeVerifier: request.verifier, state: request.state });
-            if (await localCanvasProjectCount() > 0 && readCanvasProjectsOwner() !== canvasProjectsOwner(session.user)) {
+            const needsSyncConsent = request.silent === true
+                && await localCanvasProjectCount() > 0
+                && readCanvasProjectsOwner() !== canvasProjectsOwner(session.user);
+            if (request.silent !== true || needsSyncConsent) {
                 setConsent({ session, redirect });
                 return;
             }
@@ -42,16 +45,23 @@ export default function InferStreamCallback() {
         void complete().catch(() => setFailure(true));
     }, [router]);
 
+    function finishLogin(canvasSyncDisabled: boolean) {
+        if (!consent) return;
+        useUserStore.getState().setSession(consent.session.token, consent.session.user, canvasSyncDisabled);
+        router.replace(consent.redirect);
+    }
+
     return (
         <main className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
             {consent ? (
                 <>
-                    <p>此浏览器还有画布项目。是否将它们同步到 InferStream 账号 {consent.session.user.displayName || consent.session.user.username}？</p>
-                    <Button type="primary" onClick={() => {
-                        useUserStore.getState().setSession(consent.session.token, consent.session.user);
-                        router.replace(consent.redirect);
-                    }}>登录并同步</Button>
-                    <Button onClick={() => router.replace(consent.redirect)}>取消</Button>
+                    <p>以 InferStream 账号 {consent.session.user.displayName || consent.session.user.username} 登录时，是否同步画布项目？</p>
+                    <p className="text-muted-foreground">仅登录时，画布项目保存在当前浏览器。</p>
+                    <div className="flex w-full max-w-56 flex-col gap-4">
+                        <Button block type="primary" onClick={() => finishLogin(false)}>登录并同步</Button>
+                        <Button block onClick={() => finishLogin(true)}>仅登录，不同步画布</Button>
+                        <Button block onClick={() => router.replace(consent.redirect)}>取消</Button>
+                    </div>
                 </>
             ) : failure ? (
                 <>
